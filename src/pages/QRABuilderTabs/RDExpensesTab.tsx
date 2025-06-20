@@ -49,19 +49,7 @@ import { CSVExportService } from '../../services/csvExportService';
 import { approvalsService } from '../../services/approvals';
 import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
 import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from './RDExpensesTab/utils/currencyFormatting';
-
-// Helper function to flatten hierarchical roles (same as in IdentifyRolesTab)
-const flattenAllRoles = (nodes: RoleNode[]): RoleNode[] => {
-  if (!Array.isArray(nodes)) return [];
-  let result: RoleNode[] = [];
-  nodes.forEach(node => {
-    result.push(node);
-    if (node.children && node.children.length > 0) {
-      result = result.concat(flattenAllRoles(node.children));
-    }
-  });
-  return result;
-};
+import { flattenAllRoles, getRoleName } from './RDExpensesTab/utils/roleHelpers';
 
 // Calculate role applied percentages from activities
 const calculateRoleAppliedPercentages = (
@@ -1119,16 +1107,7 @@ export default function RDExpensesTab({
     return employeeActivities;
   };
 
-  const getRoleName = (roleId: string, customRoleName?: string) => {
-    if (roleId === NON_RD_ROLE.id) {
-      return NON_RD_ROLE.name;
-    }
-    if (roleId === OTHER_ROLE.id) {
-      return customRoleName || OTHER_ROLE.name;
-    }
-    const role = roles.find(r => r.id === roleId);
-    return role?.name || 'Unknown Role';
-  };
+
 
 
 
@@ -1576,7 +1555,7 @@ export default function RDExpensesTab({
                           )}
                         </Box>
                         <Typography variant="body2" color="text.secondary">
-                          {getRoleName(employee.roleId, employee.customRoleName)}
+                          {getRoleName(employee.roleId, employee.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
                         </Typography>
                       </Box>
                     </Box>
@@ -1903,7 +1882,7 @@ export default function RDExpensesTab({
                               />
                             </Box>
                             <Typography variant="body2" color="text.secondary">
-                              {getRoleName(contractor.roleId, contractor.customRoleName)}
+                              {getRoleName(contractor.roleId, contractor.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
                             </Typography>
                           </Box>
                         </Box>
@@ -2311,7 +2290,7 @@ export default function RDExpensesTab({
             </Typography>
             {selectedEmployeeForConfig && (
               <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
-                {selectedEmployeeForConfig.firstName} {selectedEmployeeForConfig.lastName} - {getRoleName(selectedEmployeeForConfig.roleId, selectedEmployeeForConfig.customRoleName)}
+                {selectedEmployeeForConfig.firstName} {selectedEmployeeForConfig.lastName} - {getRoleName(selectedEmployeeForConfig.roleId, selectedEmployeeForConfig.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
               </Typography>
             )}
           </Box>
@@ -2875,7 +2854,7 @@ export default function RDExpensesTab({
               <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
                 {selectedContractorForConfig.contractorType === 'individual' 
                   ? `${selectedContractorForConfig.firstName} ${selectedContractorForConfig.lastName}` 
-                  : selectedContractorForConfig.businessName} - {getRoleName(selectedContractorForConfig.roleId, selectedContractorForConfig.customRoleName)}
+                  : selectedContractorForConfig.businessName} - {getRoleName(selectedContractorForConfig.roleId, selectedContractorForConfig.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
               </Typography>
             )}
           </Box>
