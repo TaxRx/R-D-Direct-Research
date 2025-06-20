@@ -258,8 +258,8 @@ export class CSVExportService {
       'First Name': '',
       'Last Name': '',
       Role: '',
-      'Supply Name': supply.description || 'Unknown Supply',
-      'Total Cost': supply.totalAmount || 0,
+      'Supply Name': supply.title || 'Unknown Supply',
+      'Total Cost': supply.totalValue || 0,
       'Applied Percent': supply.appliedPercentage || 0,
       Category: 'Supply'
     });

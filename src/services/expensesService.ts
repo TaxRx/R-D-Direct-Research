@@ -1,4 +1,4 @@
-import { Employee, Contractor, Supply, ExpenseData, EmployeesByYear, ContractorsByYear, SuppliesByYear, NON_RD_ROLE, OTHER_ROLE, ContractorFormData } from '../types/Employee';
+import { Employee, Contractor, Supply, ExpenseData, EmployeesByYear, ContractorsByYear, SuppliesByYear, NON_RD_ROLE, OTHER_ROLE, ContractorFormData, SupplyFormData, SUPPLY_CATEGORIES } from '../types/Employee';
 import { Role } from '../types/Business';
 
 export class ExpensesService {
@@ -111,6 +111,35 @@ export class ExpensesService {
     }
   }
 
+  // Add or update supply
+  static saveSupply(businessId: string, year: number, supply: Supply): void {
+    const data = this.getExpenseData(businessId);
+    
+    if (!data.supplies[year]) {
+      data.supplies[year] = [];
+    }
+
+    const existingIndex = data.supplies[year].findIndex(s => s.id === supply.id);
+    
+    if (existingIndex >= 0) {
+      data.supplies[year][existingIndex] = supply;
+    } else {
+      data.supplies[year].push(supply);
+    }
+
+    this.saveExpenseData(businessId, data);
+  }
+
+  // Delete supply
+  static deleteSupply(businessId: string, year: number, supplyId: string): void {
+    const data = this.getExpenseData(businessId);
+    
+    if (data.supplies[year]) {
+      data.supplies[year] = data.supplies[year].filter(s => s.id !== supplyId);
+      this.saveExpenseData(businessId, data);
+    }
+  }
+
   // Create new employee with role-based applied percentage
   static createEmployee(
     firstName: string,
@@ -174,6 +203,31 @@ export class ExpensesService {
     };
   }
 
+  // Create new supply
+  static createSupply(
+    title: string,
+    description: string,
+    totalValue: number,
+    category: string,
+    customCategory: string
+  ): Supply {
+    const finalCategory = category === 'Other' ? customCategory.trim() : category;
+    
+    return {
+      id: this.generateSupplyId(),
+      title: title.trim(),
+      description: description.trim(),
+      totalValue,
+      category: finalCategory,
+      appliedPercentage: 0, // Initially 0%, user will configure
+      appliedAmount: 0, // Will be calculated when percentages are set
+      isActive: true,
+      isLocked: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
   // Get applied percentage for a role
   static getRoleAppliedPercentage(roleId: string, roles: Role[]): number {
     if (roleId === NON_RD_ROLE.id) {
@@ -203,25 +257,31 @@ export class ExpensesService {
     return [NON_RD_ROLE, ...roles, OTHER_ROLE];
   }
 
-  // Calculate total expenses for a year including contractors
+  // Calculate total expenses for a year including contractors and supplies
   static calculateYearTotals(businessId: string, year: number): {
     totalWages: number;
     totalAppliedWages: number;
     totalContractorAmounts: number;
     totalAppliedContractorAmounts: number;
+    totalSupplyValues: number;
+    totalAppliedSupplyAmounts: number;
     employeeCount: number;
     businessOwnerCount: number;
     contractorCount: number;
+    supplyCount: number;
   } {
     const employees = this.getEmployees(businessId, year);
     const contractors = this.getContractors(businessId, year);
+    const supplies = this.getSupplies(businessId, year);
     
     console.log('=== CALCULATING YEAR TOTALS ===');
     console.log('Number of employees:', employees.length);
     console.log('Number of contractors:', contractors.length);
+    console.log('Number of supplies:', supplies.length);
     
     let totalAppliedWages = 0;
     let totalAppliedContractorAmounts = 0;
+    let totalAppliedSupplyAmounts = 0;
     
     employees.forEach(emp => {
       const appliedAmount = emp.wage * (emp.appliedPercentage / 100);
@@ -250,18 +310,33 @@ export class ExpensesService {
         note: '65% rule applied'
       });
     });
+
+    supplies.forEach(supply => {
+      totalAppliedSupplyAmounts += supply.appliedAmount;
+      
+      console.log(`Supply ${supply.title}:`, {
+        totalValue: supply.totalValue,
+        appliedPercentage: supply.appliedPercentage,
+        appliedAmount: supply.appliedAmount,
+        category: supply.category
+      });
+    });
     
     console.log('Final totalAppliedWages:', totalAppliedWages);
     console.log('Final totalAppliedContractorAmounts:', totalAppliedContractorAmounts);
+    console.log('Final totalAppliedSupplyAmounts:', totalAppliedSupplyAmounts);
     
     return {
       totalWages: employees.reduce((sum, emp) => sum + emp.wage, 0),
       totalAppliedWages,
       totalContractorAmounts: contractors.reduce((sum, contractor) => sum + contractor.totalAmount, 0),
       totalAppliedContractorAmounts,
+      totalSupplyValues: supplies.reduce((sum, supply) => sum + supply.totalValue, 0),
+      totalAppliedSupplyAmounts,
       employeeCount: employees.filter(emp => !emp.isBusinessOwner).length,
       businessOwnerCount: employees.filter(emp => emp.isBusinessOwner).length,
       contractorCount: contractors.length,
+      supplyCount: supplies.length,
     };
   }
 
@@ -285,6 +360,11 @@ export class ExpensesService {
   // Generate unique contractor ID
   private static generateContractorId(): string {
     return `contractor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // Generate unique supply ID
+  private static generateSupplyId(): string {
+    return `supply_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   // Validate employee data
@@ -333,5 +413,40 @@ export class ExpensesService {
     }
     
     return null;
+  }
+
+  // Validate supply data
+  static validateSupply(
+    title: string,
+    description: string,
+    totalValue: string,
+    category: string,
+    customCategory: string
+  ): string | null {
+    if (!title.trim()) return 'Title is required';
+    if (!description.trim()) return 'Description is required';
+    if (!totalValue.trim()) return 'Total value is required';
+    
+    const parsedValue = totalValue.replace(/[^\d.]/g, '');
+    if (!parsedValue || isNaN(Number(parsedValue)) || Number(parsedValue) <= 0) {
+      return 'Total value must be a valid positive number';
+    }
+    
+    if (!category) return 'Category is required';
+    if (category === 'Other' && !customCategory.trim()) {
+      return 'Custom category is required when Other is selected';
+    }
+    
+    return null;
+  }
+
+  // Update supply applied percentage and recalculate amount
+  static updateSupplyPercentage(supply: Supply, newPercentage: number): Supply {
+    return {
+      ...supply,
+      appliedPercentage: newPercentage,
+      appliedAmount: supply.totalValue * (newPercentage / 100),
+      updatedAt: new Date().toISOString()
+    };
   }
 } 

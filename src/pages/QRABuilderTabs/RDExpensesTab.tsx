@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -43,7 +43,7 @@ import {
   FileDownload as FileDownloadIcon
 } from '@mui/icons-material';
 import { Business, RoleNode, Role } from '../../types/Business';
-import { Employee, Contractor, ExpenseFormData, ContractorFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, NON_RD_ROLE, OTHER_ROLE } from '../../types/Employee';
+import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, EMPTY_SUPPLY_FORM, NON_RD_ROLE, OTHER_ROLE, SUPPLY_CATEGORIES } from '../../types/Employee';
 import { ExpensesService } from '../../services/expensesService';
 import { CSVExportService } from '../../services/csvExportService';
 import { approvalsService } from '../../services/approvals';
@@ -176,10 +176,13 @@ export default function RDExpensesTab({
   const [activeExpenseTab, setActiveExpenseTab] = useState(0);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [formData, setFormData] = useState<ExpenseFormData>(EMPTY_EXPENSE_FORM);
   const [contractorFormData, setContractorFormData] = useState<ContractorFormData>(EMPTY_CONTRACTOR_FORM);
+  const [supplyFormData, setSupplyFormData] = useState<SupplyFormData>(EMPTY_SUPPLY_FORM);
   const [formError, setFormError] = useState<string>('');
   const [contractorFormError, setContractorFormError] = useState<string>('');
+  const [supplyFormError, setSupplyFormError] = useState<string>('');
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   
@@ -194,6 +197,13 @@ export default function RDExpensesTab({
   const [selectedContractorForConfig, setSelectedContractorForConfig] = useState<Contractor | null>(null);
   const [contractorPracticePercentages, setContractorPracticePercentages] = useState<Record<string, number>>({});
   const [contractorTimePercentages, setContractorTimePercentages] = useState<Record<string, Record<string, number>>>({});
+  
+  // Supply Configure Modal state
+  const [supplyConfigureModalOpen, setSupplyConfigureModalOpen] = useState(false);
+  const [selectedSupplyForConfig, setSelectedSupplyForConfig] = useState<Supply | null>(null);
+  const [supplyActivityPercentages, setSupplyActivityPercentages] = useState<Record<string, number>>({});
+  const [supplySubcomponentPercentages, setSupplySubcomponentPercentages] = useState<Record<string, Record<string, number>>>({});
+  const [selectedSubcomponents, setSelectedSubcomponents] = useState<Record<string, string[]>>({});
   
   // Refs for tab navigation
   const firstNameRef = useRef<HTMLInputElement>(null);
@@ -210,22 +220,7 @@ export default function RDExpensesTab({
   const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
   const businessRoles = selectedBusiness?.rolesByYear?.[selectedYear] || [];
 
-  useEffect(() => {
-    if (isActivitiesApproved) {
-      loadEmployees();
-      loadContractors();
-      loadAvailableYears();
-      // Calculate applied percentages for roles
-      const rolesWithAppliedPercentages = calculateRoleAppliedPercentages(
-        businessRoles,
-        selectedBusinessId,
-        selectedYear
-      );
-      setRoles(rolesWithAppliedPercentages);
-    }
-  }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles]);
-
-  const loadEmployees = () => {
+  const loadEmployees = useCallback(() => {
     const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
     
     // Update employees with 0% applied percentage by calculating from their activities
@@ -266,17 +261,38 @@ export default function RDExpensesTab({
     });
     
     setEmployees(updatedEmployees);
-  };
+  }, [selectedBusinessId, selectedYear]);
 
-  const loadContractors = () => {
+  const loadContractors = useCallback(() => {
     const contractorData = ExpensesService.getContractors(selectedBusinessId, selectedYear);
     setContractors(contractorData);
-  };
+  }, [selectedBusinessId, selectedYear]);
 
-  const loadAvailableYears = () => {
+  const loadSupplies = useCallback(() => {
+    const supplyData = ExpensesService.getSupplies(selectedBusinessId, selectedYear);
+    setSupplies(supplyData);
+  }, [selectedBusinessId, selectedYear]);
+
+  const loadAvailableYears = useCallback(() => {
     const years = ExpensesService.getAvailableYears(selectedBusinessId);
     setAvailableYears(years);
-  };
+  }, [selectedBusinessId]);
+
+  useEffect(() => {
+    if (isActivitiesApproved) {
+      loadEmployees();
+      loadContractors();
+      loadSupplies();
+      loadAvailableYears();
+      // Calculate applied percentages for roles
+      const rolesWithAppliedPercentages = calculateRoleAppliedPercentages(
+        businessRoles,
+        selectedBusinessId,
+        selectedYear
+      );
+      setRoles(rolesWithAppliedPercentages);
+    }
+  }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles, loadEmployees, loadContractors, loadSupplies, loadAvailableYears]);
 
   const handleFormChange = (field: keyof ExpenseFormData, value: string | boolean) => {
     if (field === 'wage' && typeof value === 'string') {
@@ -297,6 +313,16 @@ export default function RDExpensesTab({
       setContractorFormData(prev => ({ ...prev, [field]: value }));
     }
     setContractorFormError('');
+  };
+
+  const handleSupplyFormChange = (field: keyof SupplyFormData, value: string) => {
+    if (field === 'totalValue' && typeof value === 'string') {
+      const formattedValue = formatCurrencyInput(value);
+      setSupplyFormData(prev => ({ ...prev, [field]: formattedValue }));
+    } else {
+      setSupplyFormData(prev => ({ ...prev, [field]: value }));
+    }
+    setSupplyFormError('');
   };
 
   const handleKeyPress = (event: React.KeyboardEvent, nextRef?: React.RefObject<HTMLInputElement>) => {
@@ -425,6 +451,221 @@ export default function RDExpensesTab({
     ExpensesService.saveContractor(selectedBusinessId, selectedYear, updatedContractor);
     loadContractors();
     onEdit();
+  };
+
+  const handleAddSupply = () => {
+    const validationError = ExpensesService.validateSupply(
+      supplyFormData.title,
+      supplyFormData.description,
+      supplyFormData.totalValue,
+      supplyFormData.category,
+      supplyFormData.customCategory
+    );
+
+    if (validationError) {
+      setSupplyFormError(validationError);
+      return;
+    }
+
+    const newSupply = ExpensesService.createSupply(
+      supplyFormData.title,
+      supplyFormData.description,
+      parseFloat(parseCurrencyInput(supplyFormData.totalValue)),
+      supplyFormData.category,
+      supplyFormData.customCategory
+    );
+
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, newSupply);
+    loadSupplies();
+    setSupplyFormData(EMPTY_SUPPLY_FORM);
+    setSupplyFormError('');
+    onEdit();
+  };
+
+  const handleDeleteSupply = (supplyId: string) => {
+    ExpensesService.deleteSupply(selectedBusinessId, selectedYear, supplyId);
+    loadSupplies();
+    onEdit();
+  };
+
+  const handleToggleSupplyActive = (supply: Supply) => {
+    const updatedSupply = { ...supply, isActive: !supply.isActive };
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
+    loadSupplies();
+    onEdit();
+  };
+
+  const handleToggleSupplyLock = (supply: Supply) => {
+    const updatedSupply = { ...supply, isLocked: !supply.isLocked };
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
+    loadSupplies();
+    onEdit();
+  };
+
+  const handleOpenSupplyConfigureModal = (supply: Supply) => {
+    setSelectedSupplyForConfig(supply);
+    
+    // Initialize activity percentages from supply's custom configuration
+    const initialActivityPercentages: Record<string, number> = {};
+    const initialSubcomponentPercentages: Record<string, Record<string, number>> = {};
+    const initialSelectedSubcomponents: Record<string, string[]> = {};
+    
+    if (supply.customActivityPercentages) {
+      Object.entries(supply.customActivityPercentages).forEach(([activityName, percentage]) => {
+        initialActivityPercentages[activityName] = percentage;
+      });
+    }
+    
+    if (supply.customSubcomponentPercentages) {
+      Object.entries(supply.customSubcomponentPercentages).forEach(([activityName, subcomponents]) => {
+        initialSubcomponentPercentages[activityName] = { ...subcomponents };
+        // Extract selected subcomponents (those with percentage > 0)
+        initialSelectedSubcomponents[activityName] = Object.keys(subcomponents).filter(subId => subcomponents[subId] > 0);
+      });
+    }
+    
+    setSupplyActivityPercentages(initialActivityPercentages);
+    setSupplySubcomponentPercentages(initialSubcomponentPercentages);
+    setSelectedSubcomponents(initialSelectedSubcomponents);
+    setSupplyConfigureModalOpen(true);
+  };
+
+  const handleCloseSupplyConfigureModal = () => {
+    setSupplyConfigureModalOpen(false);
+    setSelectedSupplyForConfig(null);
+    setSupplyActivityPercentages({});
+    setSupplySubcomponentPercentages({});
+    setSelectedSubcomponents({});
+  };
+
+  const handleSaveSupplyConfiguration = () => {
+    if (!selectedSupplyForConfig) return;
+
+    // Calculate total applied percentage from all subcomponents
+    const totalAppliedPercentage = Object.values(supplySubcomponentPercentages).reduce((activitySum, subcomponents) => {
+      return activitySum + Object.values(subcomponents).reduce((subSum, percentage) => subSum + percentage, 0);
+    }, 0);
+    
+    const updatedSupply = {
+      ...selectedSupplyForConfig,
+      customActivityPercentages: { ...supplyActivityPercentages },
+      customSubcomponentPercentages: { ...supplySubcomponentPercentages },
+      appliedPercentage: totalAppliedPercentage,
+      appliedAmount: selectedSupplyForConfig.totalValue * (totalAppliedPercentage / 100),
+      updatedAt: new Date().toISOString()
+    };
+
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
+    loadSupplies();
+    handleCloseSupplyConfigureModal();
+    onEdit();
+  };
+
+  const getSupplyActivities = () => {
+    // Get all available activities from business data
+    const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
+    const activities = selectedBusiness?.years?.[selectedYear]?.activities || {};
+    
+    return Object.entries(activities).map(([activityId, activity]: [string, any]) => ({
+      id: activityId,
+      name: activity.name,
+      active: activity.active !== false
+    })).filter(activity => activity.active);
+  };
+
+  const getSupplyActivitySubcomponents = (activityName: string) => {
+    // Get QRA data for this activity to find subcomponents
+    const qraData = getQRAData(activityName);
+    if (!qraData || !qraData.selectedSubcomponents) {
+      return [];
+    }
+    
+    return Object.entries(qraData.selectedSubcomponents).map(([subcomponentId, subcomponent]: [string, any]) => ({
+      id: subcomponentId,
+      name: subcomponent.subcomponent,
+      phase: subcomponent.phase,
+      step: subcomponent.step
+    }));
+  };
+
+  const calculateSupplyAppliedPercentage = (supply: Supply): number => {
+    if (!supply.customSubcomponentPercentages) return 0;
+    
+    // Sum all subcomponent percentages across all activities
+    return Object.values(supply.customSubcomponentPercentages).reduce((activitySum, subcomponents) => {
+      return activitySum + Object.values(subcomponents).reduce((subSum, percentage) => subSum + percentage, 0);
+    }, 0);
+  };
+
+  const handleSubcomponentToggle = (activityName: string, subcomponentId: string) => {
+    setSelectedSubcomponents(prev => {
+      const currentSelected = prev[activityName] || [];
+      const isSelected = currentSelected.includes(subcomponentId);
+      
+      let newSelected: string[];
+      if (isSelected) {
+        // Remove from selection
+        newSelected = currentSelected.filter(id => id !== subcomponentId);
+      } else {
+        // Add to selection
+        newSelected = [...currentSelected, subcomponentId];
+      }
+      
+      const updated = {
+        ...prev,
+        [activityName]: newSelected
+      };
+      
+      // Recalculate pro rata distribution for this activity
+      redistributeActivityPercentage(activityName, updated);
+      
+      return updated;
+    });
+  };
+
+  const redistributeActivityPercentage = (activityName: string, selectedSubcomponentsMap: Record<string, string[]>) => {
+    const activityPercentage = supplyActivityPercentages[activityName] || 0;
+    const selectedSubs = selectedSubcomponentsMap[activityName] || [];
+    
+    if (selectedSubs.length === 0) {
+      // No subcomponents selected, clear all percentages for this activity
+      setSupplySubcomponentPercentages(prev => ({
+        ...prev,
+        [activityName]: {}
+      }));
+      return;
+    }
+    
+    // Distribute the activity percentage pro rata across selected subcomponents
+    const percentagePerSubcomponent = activityPercentage / selectedSubs.length;
+    
+    const newSubcomponentPercentages: Record<string, number> = {};
+    selectedSubs.forEach(subId => {
+      newSubcomponentPercentages[subId] = percentagePerSubcomponent;
+    });
+    
+    setSupplySubcomponentPercentages(prev => ({
+      ...prev,
+      [activityName]: newSubcomponentPercentages
+    }));
+  };
+
+  const handleActivityPercentageChange = (activityName: string, newPercentage: number) => {
+    setSupplyActivityPercentages(prev => ({
+      ...prev,
+      [activityName]: newPercentage
+    }));
+    
+    // Redistribute the new percentage across selected subcomponents
+    redistributeActivityPercentage(activityName, selectedSubcomponents);
+  };
+
+  const getSubcomponentPercentage = (activityName: string, subcomponentId: string): number => {
+    return supplySubcomponentPercentages[activityName]?.[subcomponentId] || 0;
+  };
+
+  const isSubcomponentSelected = (activityName: string, subcomponentId: string): boolean => {
+    return selectedSubcomponents[activityName]?.includes(subcomponentId) || false;
   };
 
   // Helper function to get QRA data
@@ -1171,10 +1412,9 @@ export default function RDExpensesTab({
             label={
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <CalculateIcon sx={{ mr: 1 }} />
-                Supplies (0)
+                Supplies ({supplies.length})
               </Box>
             }
-            disabled
           />
         </Tabs>
       </Box>
@@ -1832,19 +2072,267 @@ export default function RDExpensesTab({
         </Box>
       )}
 
-      {/* Supplies Tab Content - Placeholder */}
+      {/* Supplies Tab Content */}
       {activeExpenseTab === 2 && (
-        <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <CalculateIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              Supplies Coming Soon
-            </Typography>
-            <Typography color="text.secondary">
-              Supply expense management will be available in a future update.
-            </Typography>
-          </Box>
-        </Card>
+        <Box>
+          {/* Quick Supply Entry Form */}
+          <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'secondary.50' }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                <AddIcon sx={{ mr: 1 }} />
+                Quick Supply Entry
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Add supplies used in R&D activities
+              </Typography>
+            </Box>
+            <Box sx={{ p: 3 }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    label="Supply Title"
+                    value={supplyFormData.title}
+                    onChange={(e) => handleSupplyFormChange('title', e.target.value)}
+                    fullWidth
+                    size="small"
+                    placeholder="e.g., Laboratory Equipment"
+                    error={!!supplyFormError && supplyFormError.includes('Title')}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    label="Description"
+                    value={supplyFormData.description}
+                    onChange={(e) => handleSupplyFormChange('description', e.target.value)}
+                    fullWidth
+                    size="small"
+                    placeholder="What it is and what it does"
+                    error={!!supplyFormError && supplyFormError.includes('Description')}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                  <TextField
+                    label="Total Value"
+                    value={supplyFormData.totalValue}
+                    onChange={(e) => handleSupplyFormChange('totalValue', e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    }}
+                    placeholder="5,000"
+                    error={!!supplyFormError && supplyFormError.includes('Total value')}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                  <FormControl fullWidth size="small" error={!!supplyFormError && supplyFormError.includes('Category')}>
+                    <InputLabel>Category</InputLabel>
+                    <Select
+                      value={supplyFormData.category}
+                      onChange={(e) => handleSupplyFormChange('category', e.target.value)}
+                      label="Category"
+                    >
+                      {SUPPLY_CATEGORIES.map((category) => (
+                        <MenuItem key={category} value={category}>
+                          {category}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                
+                {/* Custom Category Field - Only show when Other is selected */}
+                {supplyFormData.category === 'Other' && (
+                  <Grid item xs={12} sm={6} md={2}>
+                    <TextField
+                      value={supplyFormData.customCategory}
+                      onChange={(e) => handleSupplyFormChange('customCategory', e.target.value)}
+                      fullWidth
+                      size="small"
+                      label="Custom Category"
+                      placeholder="e.g., Custom Equipment"
+                      error={!!supplyFormError && supplyFormError.includes('Custom category')}
+                    />
+                  </Grid>
+                )}
+                
+                <Grid item xs={12} sm={6} md={2}>
+                  <Button
+                    variant="contained"
+                    onClick={handleAddSupply}
+                    fullWidth
+                    startIcon={<AddIcon />}
+                    disabled={!supplyFormData.title || !supplyFormData.description || !supplyFormData.totalValue || !supplyFormData.category || (supplyFormData.category === 'Other' && !supplyFormData.customCategory)}
+                  >
+                    Add Supply
+                  </Button>
+                </Grid>
+              </Grid>
+              {supplyFormError && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {supplyFormError}
+                </Alert>
+              )}
+            </Box>
+          </Card>
+
+          {/* Supply List */}
+          <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Supply Expenses
+                  </Typography>
+                  <Chip 
+                    label={`${supplies.length} supply${supplies.length !== 1 ? 's' : ''}`} 
+                    size="small" 
+                    color="primary"
+                    variant="outlined"
+                  />
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Total Applied: {formatCurrency(yearTotals.totalAppliedSupplyAmounts || 0)}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ p: 2 }}>
+              {supplies.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <CalculateIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                    No Supplies Added
+                  </Typography>
+                  <Typography color="text.secondary">
+                    Use the quick entry form above to add your first supply.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {supplies.map((supply) => (
+                    <Box
+                      key={supply.id}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        p: 2,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: supply.isActive ? 'background.paper' : 'grey.50',
+                        opacity: supply.isActive ? 1 : 0.7,
+                      }}
+                    >
+                      {/* Supply Info */}
+                      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                              {supply.title}
+                            </Typography>
+                            <Chip 
+                              label={supply.category} 
+                              size="small" 
+                              color="info"
+                              variant="outlined"
+                            />
+                          </Box>
+                          <Typography variant="body2" color="text.secondary">
+                            {supply.description}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Total Value */}
+                      <Box sx={{ minWidth: 100, textAlign: 'right' }}>
+                        <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                          {formatCurrency(supply.totalValue)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Total Value
+                        </Typography>
+                      </Box>
+
+                      {/* Applied Percentage & Amount */}
+                      <Box sx={{ display: 'flex', gap: 2, minWidth: 180, textAlign: 'right', mr: 2 }}>
+                        {/* Applied Percentage */}
+                        <Box sx={{ minWidth: 80 }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                            {calculateSupplyAppliedPercentage(supply).toFixed(1)}%
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Applied %
+                          </Typography>
+                        </Box>
+                        
+                        {/* R&D Amount */}
+                        <Box sx={{ minWidth: 90 }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600, color: 'success.main' }}>
+                            {formatCurrency(supply.totalValue * (calculateSupplyAppliedPercentage(supply) / 100))}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            R&D Amount
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Actions */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Tooltip title={supply.isLocked ? 'Unlock supply' : 'Lock supply'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleToggleSupplyLock(supply)}
+                            color={supply.isLocked ? 'warning' : 'default'}
+                          >
+                            {supply.isLocked ? <LockIcon /> : <UnlockIcon />}
+                          </IconButton>
+                        </Tooltip>
+                        
+                        <Tooltip title="Configure applied percentage">
+                          <span>
+                            <IconButton 
+                              size="small" 
+                              disabled={supply.isLocked}
+                              onClick={() => handleOpenSupplyConfigureModal(supply)}
+                            >
+                              <SettingsIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        
+                        <Tooltip title={supply.isActive ? 'Deactivate supply' : 'Activate supply'}>
+                          <span>
+                            <Switch
+                              checked={supply.isActive}
+                              onChange={() => handleToggleSupplyActive(supply)}
+                              size="small"
+                              disabled={supply.isLocked}
+                            />
+                          </span>
+                        </Tooltip>
+                        
+                        <Tooltip title="Delete supply">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleDeleteSupply(supply.id)}
+                              color="error"
+                              disabled={supply.isLocked}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          </Card>
+        </Box>
       )}
 
       {/* Employee Configure Modal */}
@@ -2994,6 +3482,376 @@ export default function RDExpensesTab({
           </Button>
           <Button onClick={handleSaveContractorConfiguration} variant="contained">
             Save Configuration (65% Applied)
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Supply Configure Modal */}
+      <Dialog
+        open={supplyConfigureModalOpen}
+        onClose={handleCloseSupplyConfigureModal}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: { height: '90vh' }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: 'secondary.main', color: 'white', position: 'relative' }}>
+          <Box sx={{ pr: 6 }}>
+            <Typography variant="h5" component="div">
+              Configure Supply Allocation
+            </Typography>
+            {selectedSupplyForConfig && (
+              <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                {selectedSupplyForConfig.title} - {selectedSupplyForConfig.category}
+              </Typography>
+            )}
+          </Box>
+          <IconButton
+            onClick={handleCloseSupplyConfigureModal}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: 'white'
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0 }}>
+          {selectedSupplyForConfig && (
+            <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+              {/* Applied Percentage Summary */}
+              <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Applied Percentage Breakdown
+                    </Typography>
+                    <Typography variant="h4" sx={{ fontWeight: 700, color: 'secondary.main' }}>
+                      {(() => {
+                        const totalApplied = Object.values(supplyActivityPercentages).reduce((sum, percentage) => sum + percentage, 0);
+                        return totalApplied.toFixed(1);
+                      })()}%
+                    </Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Value
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      {formatCurrency(selectedSupplyForConfig.totalValue)}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Applied Amount
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 600, color: 'success.main' }}>
+                      {(() => {
+                        const totalApplied = Object.values(supplyActivityPercentages).reduce((sum, percentage) => sum + percentage, 0);
+                        return formatCurrency(selectedSupplyForConfig.totalValue * (totalApplied / 100));
+                      })()}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* Validation Warning */}
+                {(() => {
+                  const totalApplied = Object.values(supplyActivityPercentages).reduce((sum, percentage) => sum + percentage, 0);
+                  
+                  if (totalApplied > 100) {
+                    return (
+                      <Box sx={{ 
+                        mb: 2, 
+                        p: 1.5, 
+                        bgcolor: 'error.light', 
+                        borderRadius: 1, 
+                        border: '1px solid',
+                        borderColor: 'error.main'
+                      }}>
+                        <Typography variant="caption" sx={{ color: 'error.dark', fontWeight: 600 }}>
+                          ⚠️ Total exceeds 100% by {(totalApplied - 100).toFixed(1)}%
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'error.dark', display: 'block' }}>
+                          Adjust activity percentages to total 100% or less.
+                        </Typography>
+                      </Box>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Progress Bar */}
+                <Box sx={{ position: 'relative', width: '100%', height: 32, mb: 2 }}>
+                  <Box sx={{ 
+                    position: 'absolute', 
+                    top: 0, 
+                    left: 0, 
+                    width: '100%', 
+                    height: '100%',
+                    bgcolor: 'grey.200',
+                    borderRadius: 1,
+                    overflow: 'hidden'
+                  }}>
+                    {(() => {
+                      const activities = getSupplyActivities();
+                      let currentLeft = 0;
+                      
+                      return activities.map((activity, idx) => {
+                        const percentage = supplyActivityPercentages[activity.name] || 0;
+                        const color = getActivityColor(activity.name, activities);
+                        
+                        if (percentage <= 0) return null;
+                        
+                        const segment = (
+                          <Box
+                            key={activity.name}
+                            sx={{
+                              position: 'absolute',
+                              left: `${currentLeft}%`,
+                              width: `${percentage}%`,
+                              height: '100%',
+                              bgcolor: color,
+                              borderRight: currentLeft + percentage < 100 ? '1px solid white' : 'none'
+                            }}
+                          />
+                        );
+                        
+                        currentLeft += percentage;
+                        return segment;
+                      });
+                    })()}
+                  </Box>
+                </Box>
+
+                {/* Activity Contribution Chips */}
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {getSupplyActivities().map((activity) => {
+                    const percentage = supplyActivityPercentages[activity.name] || 0;
+                    const selectedSubs = selectedSubcomponents[activity.name] || [];
+                    if (percentage <= 0) return null;
+                    
+                    return (
+                      <Tooltip 
+                        key={activity.name}
+                        title={
+                          selectedSubs.length > 0 
+                            ? `${selectedSubs.length} subcomponent${selectedSubs.length !== 1 ? 's' : ''} selected`
+                            : 'No subcomponents selected'
+                        }
+                      >
+                        <Chip
+                          label={`${activity.name}: ${percentage.toFixed(1)}% ${selectedSubs.length > 0 ? `(${selectedSubs.length} sub${selectedSubs.length !== 1 ? 's' : ''})` : '(0 subs)'}`}
+                          size="small"
+                          sx={{
+                            bgcolor: getActivityColor(activity.name, getSupplyActivities()),
+                            color: 'white',
+                            fontWeight: 600
+                          }}
+                        />
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              </Box>
+
+              {/* Activities Configuration */}
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
+                <Box sx={{ p: 3 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Activity Allocation
+                  </Typography>
+                  
+                  {getSupplyActivities().map((activity) => {
+                    const subcomponents = getSupplyActivitySubcomponents(activity.name);
+                    
+                    return (
+                      <Card key={activity.name} sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                            {activity.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Allocation: {(supplyActivityPercentages[activity.name] || 0).toFixed(1)}%
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ p: 2 }}>
+                          {/* Activity Percentage Slider */}
+                          <Box sx={{ mb: 3 }}>
+                            <Typography variant="body2" gutterBottom sx={{ fontWeight: 600 }}>
+                              Activity Usage Percentage
+                            </Typography>
+                            <Slider
+                              value={supplyActivityPercentages[activity.name] || 0}
+                              onChange={(_, value) => {
+                                const newValue = value as number;
+                                
+                                // Calculate what the total would be with this change
+                                const activities = getSupplyActivities();
+                                const otherActivitiesTotal = activities.reduce((sum, act) => {
+                                  if (act.name === activity.name) return sum;
+                                  return sum + (supplyActivityPercentages[act.name] || 0);
+                                }, 0);
+                                
+                                // Prevent exceeding 100% total
+                                const maxAllowed = 100 - otherActivitiesTotal;
+                                const constrainedValue = Math.min(newValue, maxAllowed);
+                                
+                                if (constrainedValue !== newValue) {
+                                  console.warn(`Activity percentage for ${activity.name} limited to ${constrainedValue}% to stay within 100% total`);
+                                }
+                                
+                                handleActivityPercentageChange(activity.name, constrainedValue);
+                              }}
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              valueLabelDisplay="auto"
+                              valueLabelFormat={(value) => `${value.toFixed(1)}%`}
+                              sx={{ 
+                                mt: 1,
+                                '& .MuiSlider-track': {
+                                  background: 'linear-gradient(90deg, #9c27b0 0%, #ba68c8 100%)'
+                                },
+                                '& .MuiSlider-thumb': {
+                                  boxShadow: '0 2px 8px rgba(156, 39, 176, 0.3)'
+                                }
+                              }}
+                            />
+                          </Box>
+
+                          {/* Subcomponents Selection */}
+                          {subcomponents.length > 0 ? (
+                            <Box>
+                              <Typography variant="body2" gutterBottom sx={{ fontWeight: 600 }}>
+                                Select Subcomponents ({selectedSubcomponents[activity.name]?.length || 0} of {subcomponents.length} selected)
+                              </Typography>
+                              
+                              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 2, mb: 2 }}>
+                                {subcomponents.map((subcomponent) => {
+                                  const isSelected = isSubcomponentSelected(activity.name, subcomponent.id);
+                                  const percentage = getSubcomponentPercentage(activity.name, subcomponent.id);
+                                  
+                                  return (
+                                    <Box 
+                                      key={subcomponent.id} 
+                                      onClick={() => handleSubcomponentToggle(activity.name, subcomponent.id)}
+                                      sx={{ 
+                                        p: 2, 
+                                        border: '2px solid', 
+                                        borderColor: isSelected ? 'secondary.main' : 'divider', 
+                                        borderRadius: 1,
+                                        bgcolor: isSelected ? 'secondary.light' : 'background.paper',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease-in-out',
+                                        '&:hover': {
+                                          borderColor: isSelected ? 'secondary.dark' : 'secondary.light',
+                                          bgcolor: isSelected ? 'secondary.main' : 'secondary.light',
+                                          transform: 'translateY(-2px)',
+                                          boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                                        }
+                                      }}
+                                    >
+                                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                                        <Typography variant="body2" sx={{ 
+                                          fontWeight: 600, 
+                                          color: isSelected ? 'white' : 'text.primary',
+                                          flex: 1
+                                        }}>
+                                          {subcomponent.name}
+                                        </Typography>
+                                        {isSelected && (
+                                          <Chip 
+                                            label={`${percentage.toFixed(1)}%`}
+                                            size="small"
+                                            sx={{ 
+                                              bgcolor: 'white', 
+                                              color: 'secondary.main',
+                                              fontWeight: 600,
+                                              ml: 1
+                                            }}
+                                          />
+                                        )}
+                                      </Box>
+                                      
+                                      <Typography variant="caption" sx={{ 
+                                        color: isSelected ? 'rgba(255,255,255,0.9)' : 'text.secondary',
+                                        display: 'block',
+                                        mb: 1
+                                      }}>
+                                        Step: {subcomponent.step} | Phase: {subcomponent.phase}
+                                      </Typography>
+                                      
+                                      {isSelected && (
+                                        <Box sx={{ 
+                                          mt: 1, 
+                                          p: 1, 
+                                          bgcolor: 'rgba(255,255,255,0.2)', 
+                                          borderRadius: 0.5 
+                                        }}>
+                                          <Typography variant="caption" sx={{ color: 'white', fontWeight: 600 }}>
+                                            ✓ Selected - {percentage.toFixed(1)}% of supply allocated
+                                          </Typography>
+                                        </Box>
+                                      )}
+                                    </Box>
+                                  );
+                                })}
+                              </Box>
+                              
+                              {selectedSubcomponents[activity.name]?.length > 0 ? (
+                                <Box sx={{ mt: 2, p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
+                                  <Typography variant="caption" color="success.dark" sx={{ fontWeight: 600 }}>
+                                    ✓ {(supplyActivityPercentages[activity.name] || 0).toFixed(1)}% distributed equally across {selectedSubcomponents[activity.name].length} subcomponent{selectedSubcomponents[activity.name].length !== 1 ? 's' : ''}
+                                  </Typography>
+                                  <Typography variant="caption" color="success.dark" sx={{ display: 'block', mt: 0.5 }}>
+                                    Each subcomponent: {((supplyActivityPercentages[activity.name] || 0) / selectedSubcomponents[activity.name].length).toFixed(1)}%
+                                  </Typography>
+                                </Box>
+                              ) : (
+                                <Box sx={{ mt: 2, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                                  <Typography variant="caption" color="warning.dark">
+                                    ⚠️ Click on subcomponents above to select which ones this supply applies to. 
+                                    The activity percentage will be distributed equally across selected subcomponents.
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          ) : (
+                            <Box sx={{ 
+                              p: 3, 
+                              textAlign: 'center', 
+                              bgcolor: 'grey.50', 
+                              borderRadius: 1,
+                              border: '1px dashed',
+                              borderColor: 'grey.300'
+                            }}>
+                              <Typography variant="body2" color="text.secondary" gutterBottom>
+                                No QRA subcomponents found for "{activity.name}"
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Configure subcomponents in the Activities tab first.
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Button onClick={handleCloseSupplyConfigureModal} color="inherit">
+            Cancel
+          </Button>
+          <Button onClick={handleSaveSupplyConfiguration} variant="contained" color="secondary">
+            Save Configuration
           </Button>
         </DialogActions>
       </Dialog>

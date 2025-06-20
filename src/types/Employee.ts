@@ -51,15 +51,19 @@ export interface Contractor {
 
 export interface Supply {
   id: string;
-  description: string;
-  totalAmount: number;
-  category: string;
-  appliedPercentage: number;
-  appliedAmount: number;
+  title: string; // Name of the supply
+  description: string; // What it is and what it does
+  totalValue: number; // Total value of the supply
+  category: string; // Category with 'other' option
+  appliedPercentage: number; // Total percentage applied across all activities/subcomponents
+  appliedAmount: number; // Calculated: totalValue * appliedPercentage
   isActive: boolean;
   isLocked: boolean;
   createdAt: string;
   updatedAt: string;
+  // Custom supply-specific configuration for activity/subcomponent allocation
+  customActivityPercentages?: Record<string, number>; // Activity name -> percentage
+  customSubcomponentPercentages?: Record<string, Record<string, number>>; // Activity name -> subcomponent ID -> percentage
 }
 
 export interface ExpenseData {
@@ -105,6 +109,33 @@ export const EMPTY_CONTRACTOR_FORM: ContractorFormData = {
   roleId: '',
   customRoleName: '',
 };
+
+export interface SupplyFormData {
+  title: string;
+  description: string;
+  totalValue: string;
+  category: string;
+  customCategory: string;
+}
+
+export const EMPTY_SUPPLY_FORM: SupplyFormData = {
+  title: '',
+  description: '',
+  totalValue: '',
+  category: '',
+  customCategory: '',
+};
+
+export const SUPPLY_CATEGORIES = [
+  'Laboratory Equipment',
+  'Software & Licenses',
+  'Raw Materials',
+  'Testing Materials',
+  'Research Tools',
+  'Computing Hardware',
+  'Specialized Components',
+  'Other'
+];
 
 export const NON_RD_ROLE = {
   id: 'non-rd',
