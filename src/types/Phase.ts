@@ -1,0 +1,1 @@
+export type Phase = 'discovery' | 'development' | 'testing' | 'implementation'; 

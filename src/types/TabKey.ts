@@ -1,0 +1,1 @@
+export type TabKey = 'basicInfo' | 'ownership' | 'financial' | 'qra'; 

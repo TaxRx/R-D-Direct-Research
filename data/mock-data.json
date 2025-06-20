@@ -1,0 +1,145 @@
+{
+  "phases": [
+    {
+      "id": "phase1",
+      "name": "Research & Development",
+      "subcomponents": [
+        {
+          "id": "sub1",
+          "title": "Basic Research",
+          "step": "Initial research phase",
+          "hint": "Focus on fundamental research",
+          "frequencyPercent": 30,
+          "timePercent": 25
+        },
+        {
+          "id": "sub2",
+          "title": "Applied Research",
+          "step": "Applied research phase",
+          "hint": "Focus on practical applications",
+          "frequencyPercent": 40,
+          "timePercent": 35
+        }
+      ]
+    },
+    {
+      "id": "phase2",
+      "name": "Testing & Validation",
+      "subcomponents": [
+        {
+          "id": "sub3",
+          "title": "Prototype Testing",
+          "step": "Test phase",
+          "hint": "Validate prototype functionality",
+          "frequencyPercent": 20,
+          "timePercent": 25
+        },
+        {
+          "id": "sub4",
+          "title": "Performance Analysis",
+          "step": "Analysis phase",
+          "hint": "Analyze performance metrics",
+          "frequencyPercent": 10,
+          "timePercent": 15
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "role1",
+      "name": "Research Leader",
+      "description": "Leads research activities and coordinates team efforts",
+      "responsibilities": [
+        "Oversee research projects",
+        "Coordinate team activities",
+        "Review research findings"
+      ]
+    }
+  ],
+  "researchActivities": [
+    {
+      "id": "clear-aligner",
+      "name": "Clear Aligner",
+      "description": "Clear aligner therapy development and optimization",
+      "category": "Orthodontics",
+      "area": "Treatment Devices",
+      "focus": "Digital Treatment Planning",
+      "steps": [
+        "Bone Evaluation",
+        "Digital Imaging",
+        "Treatment Planning",
+        "Surgical Preparation"
+      ],
+      "selectedSubcomponents": [
+        {
+          "stepName": "Bone Evaluation",
+          "subcomponentName": "Bone Evaluation-Digital Imaging Modification (CBCT)",
+          "percentage": 75
+        },
+        {
+          "stepName": "Digital Imaging",
+          "subcomponentName": "Digital Imaging-3D Modeling",
+          "percentage": 60
+        },
+        {
+          "stepName": "Treatment Planning",
+          "subcomponentName": "Treatment Planning-Surgical Guide Design",
+          "percentage": 85
+        }
+      ]
+    },
+    {
+      "id": "implant-surgery",
+      "name": "Implant Surgery",
+      "description": "Dental implant surgical procedures and techniques",
+      "category": "Oral Surgery",
+      "area": "Surgical Procedures",
+      "focus": "Implant Placement",
+      "steps": [
+        "Bone Evaluation",
+        "Surgical Preparation",
+        "Implant Placement",
+        "Follow-up"
+      ],
+      "selectedSubcomponents": [
+        {
+          "stepName": "Bone Evaluation",
+          "subcomponentName": "Bone Evaluation-CT Scan Analysis",
+          "percentage": 90
+        },
+        {
+          "stepName": "Surgical Preparation",
+          "subcomponentName": "Surgical Preparation-Guide Design",
+          "percentage": 80
+        }
+      ]
+    },
+    {
+      "id": "periodontal-therapy",
+      "name": "Periodontal Therapy",
+      "description": "Advanced periodontal treatment and maintenance",
+      "category": "Periodontics",
+      "area": "Therapeutic Procedures",
+      "focus": "Tissue Regeneration",
+      "steps": [
+        "Diagnosis",
+        "Treatment Planning",
+        "Surgical Intervention",
+        "Follow-up"
+      ],
+      "selectedSubcomponents": [
+        {
+          "stepName": "Diagnosis",
+          "subcomponentName": "Diagnosis-Periodontal Assessment",
+          "percentage": 85
+        },
+        {
+          "stepName": "Treatment Planning",
+          "subcomponentName": "Treatment Planning-Regenerative Protocol",
+          "percentage": 70
+        }
+      ]
+    }
+  ]
+}
