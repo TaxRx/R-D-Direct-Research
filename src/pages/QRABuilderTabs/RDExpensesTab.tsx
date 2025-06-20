@@ -25,10 +25,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Slider,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails
+  Slider
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
@@ -43,9 +40,7 @@ import {
   Person as PersonIcon,
   Business as BusinessIcon,
   Close as CloseIcon,
-  FileDownload as FileDownloadIcon,
-  ExpandMore as ExpandMoreIcon,
-  PowerSettingsNew as PowerIcon
+  FileDownload as FileDownloadIcon
 } from '@mui/icons-material';
 import { Business, RoleNode, Role } from '../../types/Business';
 import { Employee, Contractor, ExpenseFormData, ContractorFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, NON_RD_ROLE, OTHER_ROLE } from '../../types/Employee';
@@ -199,14 +194,7 @@ export default function RDExpensesTab({
   const [selectedContractorForConfig, setSelectedContractorForConfig] = useState<Contractor | null>(null);
   const [contractorPracticePercentages, setContractorPracticePercentages] = useState<Record<string, number>>({});
   const [contractorTimePercentages, setContractorTimePercentages] = useState<Record<string, Record<string, number>>>({});
-
-  // Activity enable/disable state
-  const [employeeEnabledActivities, setEmployeeEnabledActivities] = useState<Record<string, boolean>>({});
-  const [contractorEnabledActivities, setContractorEnabledActivities] = useState<Record<string, boolean>>({});
   
-  // Accordion state
-  const [employeeAccordionStates, setEmployeeAccordionStates] = useState<Record<string, boolean>>({});
-  const [contractorAccordionStates, setContractorAccordionStates] = useState<Record<string, boolean>>({});  
   // Refs for tab navigation
   const firstNameRef = useRef<HTMLInputElement>(null);
   const lastNameRef = useRef<HTMLInputElement>(null);
@@ -231,8 +219,8 @@ export default function RDExpensesTab({
       const rolesWithAppliedPercentages = calculateRoleAppliedPercentages(
         businessRoles,
         selectedBusinessId,
-        selectedYear);
-    
+        selectedYear
+      );
       setRoles(rolesWithAppliedPercentages);
     }
   }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles]);
@@ -330,7 +318,7 @@ export default function RDExpensesTab({
       formData.wage,
       formData.roleId,
       formData.customRoleName
-  
+    );
 
     if (validationError) {
       setFormError(validationError);
@@ -346,7 +334,7 @@ export default function RDExpensesTab({
       formData.customRoleName,
       formData.isBusinessOwner,
       roles
-  
+    );
 
     // Save employee
     ExpensesService.saveEmployee(selectedBusinessId, selectedYear, newEmployee);
@@ -394,7 +382,7 @@ export default function RDExpensesTab({
       contractorFormData.totalAmount,
       contractorFormData.roleId,
       contractorFormData.customRoleName
-  
+    );
 
     if (validationError) {
       setContractorFormError(validationError);
@@ -410,7 +398,7 @@ export default function RDExpensesTab({
       contractorFormData.roleId,
       contractorFormData.customRoleName,
       roles
-  
+    );
 
     ExpensesService.saveContractor(selectedBusinessId, selectedYear, newContractor);
     loadContractors();
@@ -529,8 +517,6 @@ export default function RDExpensesTab({
     
     // Clear any previous state first to ensure fresh data
     setEmployeePracticePercentages({});
-    setEmployeeEnabledActivities({});
-    setEmployeeAccordionStates({});
     setEmployeeTimePercentages({});
     
     setSelectedEmployeeForConfig(employee);
@@ -587,13 +573,7 @@ export default function RDExpensesTab({
     console.log('Final practicePercentages being set:', practicePercentages);
     console.log('Final timePercentages being set:', timePercentages);
     
-
-    // Initialize enabled activities (all enabled by default)
-    const enabledActivities: Record<string, boolean> = {};
-    employeeActivities.forEach(activity => {
-      enabledActivities[activity.name] = true;
-    });
-    setEmployeeEnabledActivities(enabledActivities);    setEmployeePracticePercentages(practicePercentages);
+    setEmployeePracticePercentages(practicePercentages);
     setEmployeeTimePercentages(timePercentages);
     
     // Debug: Log the initial total applied percentage
@@ -606,8 +586,6 @@ export default function RDExpensesTab({
     setConfigureModalOpen(false);
     setSelectedEmployeeForConfig(null);
     setEmployeePracticePercentages({});
-    setEmployeeEnabledActivities({});
-    setEmployeeAccordionStates({});
     setEmployeeTimePercentages({});
   };
 
@@ -640,8 +618,6 @@ export default function RDExpensesTab({
     setConfigureModalOpen(false);
     setSelectedEmployeeForConfig(null);
     setEmployeePracticePercentages({});
-    setEmployeeEnabledActivities({});
-    setEmployeeAccordionStates({});
     setEmployeeTimePercentages({});
   };
 
@@ -694,22 +670,13 @@ export default function RDExpensesTab({
       setContractorTimePercentages(defaultTimePercentages);
     }
     
-
-    // Initialize enabled activities (all enabled by default)
-    const activities = getContractorActivities(contractor);
-    const enabledActivities: Record<string, boolean> = {};
-    activities.forEach(activity => {
-      enabledActivities[activity.name] = true;
-    });
-    setContractorEnabledActivities(enabledActivities);    setContractorConfigureModalOpen(true);
+    setContractorConfigureModalOpen(true);
   };
 
   const handleCloseContractorConfigureModal = () => {
     setContractorConfigureModalOpen(false);
     setSelectedContractorForConfig(null);
     setContractorPracticePercentages({});
-    setContractorEnabledActivities({});
-    setContractorAccordionStates({});
     setContractorTimePercentages({});
   };
 
@@ -742,8 +709,6 @@ export default function RDExpensesTab({
     setContractorConfigureModalOpen(false);
     setSelectedContractorForConfig(null);
     setContractorPracticePercentages({});
-    setContractorEnabledActivities({});
-    setContractorAccordionStates({});
     setContractorTimePercentages({});
   };
 
@@ -1070,9 +1035,7 @@ export default function RDExpensesTab({
           </Typography>
         </Card>
       </Box>
-  );
-
-  
+    );
   }
 
   return (
@@ -1097,8 +1060,7 @@ export default function RDExpensesTab({
               {isExpensesApproved && (
                 <CheckCircleIcon sx={{ ml: 1, verticalAlign: 'middle' }} />
               )}
-  );
-
+            </Box>
             <Chip 
               label={`${selectedYear}`} 
               size="small" 
@@ -1107,8 +1069,6 @@ export default function RDExpensesTab({
               variant="outlined"
             />
           </Box>
-  );
-
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {availableYears.length > 0 && (
@@ -1132,8 +1092,6 @@ export default function RDExpensesTab({
               </IconButton>
             </Tooltip>
           </Box>
-  );
-
         </Toolbar>
       </AppBar>
 
@@ -1144,8 +1102,6 @@ export default function RDExpensesTab({
             R&D Expenses Summary - {selectedYear}
           </Typography>
         </Box>
-  );
-
         <Box sx={{ p: 3 }}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={3}>
@@ -1157,8 +1113,6 @@ export default function RDExpensesTab({
                   Employees
                 </Typography>
               </Box>
-  );
-
             </Grid>
             <Grid item xs={12} md={3}>
               <Box sx={{ textAlign: 'center' }}>
@@ -1169,8 +1123,6 @@ export default function RDExpensesTab({
                   Total Wages
                 </Typography>
               </Box>
-  );
-
             </Grid>
             <Grid item xs={12} md={3}>
               <Box sx={{ textAlign: 'center' }}>
@@ -1181,8 +1133,6 @@ export default function RDExpensesTab({
                   Applied R&D Amount
                 </Typography>
               </Box>
-  );
-
             </Grid>
             <Grid item xs={12} md={3}>
               <Box sx={{ textAlign: 'center' }}>
@@ -1193,13 +1143,9 @@ export default function RDExpensesTab({
                   Business Owners
                 </Typography>
               </Box>
-  );
-
             </Grid>
           </Grid>
         </Box>
-  );
-
       </Card>
 
       {/* Expense Category Tabs */}
@@ -1211,8 +1157,6 @@ export default function RDExpensesTab({
                 <PersonIcon sx={{ mr: 1 }} />
                 Wages ({employees.length})
               </Box>
-  );
-
             }
           />
           <Tab 
@@ -1221,8 +1165,6 @@ export default function RDExpensesTab({
                 <BusinessIcon sx={{ mr: 1 }} />
                 Contractors ({contractors.length})
               </Box>
-  );
-
             }
           />
           <Tab 
@@ -1231,15 +1173,11 @@ export default function RDExpensesTab({
                 <CalculateIcon sx={{ mr: 1 }} />
                 Supplies (0)
               </Box>
-  );
-
             }
             disabled
           />
         </Tabs>
       </Box>
-  );
-
 
       {/* Wages Tab Content */}
       {activeExpenseTab === 0 && (
@@ -1254,8 +1192,7 @@ export default function RDExpensesTab({
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 Use Tab to navigate fields, Enter to add employee
               </Typography>
-  );
-
+            </Box>
             <Box sx={{ p: 3 }}>
               <Grid container spacing={2} alignItems="center">
                 <Grid item xs={12} sm={6} md={2}>
@@ -1319,8 +1256,6 @@ export default function RDExpensesTab({
                             )}
                             {role.name}
                           </Box>
-  );
-
                         </MenuItem>
                       ))}
                     </Select>
@@ -1374,8 +1309,7 @@ export default function RDExpensesTab({
                   {formError}
                 </Alert>
               )}
-  );
-
+            </Box>
           </Card>
 
           {/* Employee List - SAME STRUCTURE AS BEFORE */}
@@ -1394,16 +1328,11 @@ export default function RDExpensesTab({
                     variant="outlined"
                   />
                 </Box>
-  );
-
                 <Typography variant="body2" color="text.secondary">
                   Total Applied: {formatCurrency(yearTotals.totalAppliedWages)}
                 </Typography>
               </Box>
-  );
-
-  );
-
+            </Box>
 
           <Box sx={{ p: 2 }}>
             {employees.length === 0 ? (
@@ -1416,8 +1345,6 @@ export default function RDExpensesTab({
                   Use the quick entry form above to add your first employee.
                 </Typography>
               </Box>
-  );
-
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {employees.map((employee) => (
@@ -1449,17 +1376,11 @@ export default function RDExpensesTab({
                             />
                           )}
                         </Box>
-  );
-
                         <Typography variant="body2" color="text.secondary">
                           {getRoleName(employee.roleId, employee.customRoleName)}
                         </Typography>
                       </Box>
-  );
-
                     </Box>
-  );
-
 
                     {/* Wage */}
                     <Box sx={{ minWidth: 100, textAlign: 'right' }}>
@@ -1470,8 +1391,6 @@ export default function RDExpensesTab({
                         Annual Wage
                       </Typography>
                     </Box>
-  );
-
 
                     {/* Applied Percentage & Amount - Improved Spacing */}
                     <Box sx={{ display: 'flex', gap: 2, minWidth: 180, textAlign: 'right', mr: 2 }}>
@@ -1497,8 +1416,6 @@ export default function RDExpensesTab({
                           Applied %
                         </Typography>
                       </Box>
-  );
-
                       
                       {/* R&D Amount */}
                       <Box sx={{ minWidth: 90 }}>
@@ -1525,11 +1442,7 @@ export default function RDExpensesTab({
                           R&D Amount
                         </Typography>
                       </Box>
-  );
-
                     </Box>
-  );
-
 
                     {/* Actions */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -1579,23 +1492,13 @@ export default function RDExpensesTab({
                         </span>
                       </Tooltip>
                     </Box>
-  );
-
                   </Box>
-  );
-
                 ))}
               </Box>
-  );
-
             )}
           </Box>
-  );
-
         </Card>
         </Box>
-  );
-
       )}
 
       {/* Contractors Tab Content */}
@@ -1611,8 +1514,7 @@ export default function RDExpensesTab({
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 Add contractors (65% of amount applied to R&D)
               </Typography>
-  );
-
+            </Box>
             <Box sx={{ p: 3 }}>
               <Grid container spacing={2} alignItems="center">
                 <Grid item xs={12} sm={6} md={2}>
@@ -1731,8 +1633,7 @@ export default function RDExpensesTab({
                   {contractorFormError}
                 </Alert>
               )}
-  );
-
+            </Box>
           </Card>
 
           {/* Contractor List - SAME STRUCTURE AS WAGES TAB */}
@@ -1751,16 +1652,11 @@ export default function RDExpensesTab({
                     variant="outlined"
                   />
                 </Box>
-  );
-
                 <Typography variant="body2" color="text.secondary">
                   Total Applied: {formatCurrency(yearTotals.totalAppliedContractorAmounts || 0)} (65% applied)
                 </Typography>
               </Box>
-  );
-
-  );
-
+            </Box>
 
             <Box sx={{ p: 2 }}>
               {contractors.length === 0 ? (
@@ -1773,8 +1669,6 @@ export default function RDExpensesTab({
                     Use the quick entry form above to add your first contractor.
                   </Typography>
                 </Box>
-  );
-
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {contractors.map((contractor) => {
@@ -1809,17 +1703,11 @@ export default function RDExpensesTab({
                                 color={contractor.contractorType === 'individual' ? 'primary' : 'secondary'}
                               />
                             </Box>
-  );
-
                             <Typography variant="body2" color="text.secondary">
                               {getRoleName(contractor.roleId, contractor.customRoleName)}
                             </Typography>
                           </Box>
-  );
-
                         </Box>
-  );
-
 
                         {/* Total Amount */}
                         <Box sx={{ minWidth: 100, textAlign: 'right' }}>
@@ -1830,8 +1718,6 @@ export default function RDExpensesTab({
                             Total Amount
                           </Typography>
                         </Box>
-  );
-
 
                         {/* Applied Percentage & Amount - SAME AS WAGES TAB */}
                         <Box sx={{ display: 'flex', gap: 2, minWidth: 180, textAlign: 'right', mr: 2 }}>
@@ -1857,8 +1743,6 @@ export default function RDExpensesTab({
                               Applied %
                             </Typography>
                           </Box>
-  );
-
                           
                           {/* R&D Amount */}
                           <Box sx={{ minWidth: 90 }}>
@@ -1888,11 +1772,7 @@ export default function RDExpensesTab({
                               (65% applied)
                             </Typography>
                           </Box>
-  );
-
                         </Box>
-  );
-
 
                         {/* Actions - SAME AS WAGES TAB WITH CONFIGURE BUTTON */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -1942,23 +1822,14 @@ export default function RDExpensesTab({
                             </span>
                           </Tooltip>
                         </Box>
-  );
-
                       </Box>
-  );
-
-                  
+                    );
                   })}
                 </Box>
-  );
-
               )}
-  );
-
+            </Box>
           </Card>
         </Box>
-  );
-
       )}
 
       {/* Supplies Tab Content - Placeholder */}
@@ -1973,8 +1844,6 @@ export default function RDExpensesTab({
               Supply expense management will be available in a future update.
             </Typography>
           </Box>
-  );
-
         </Card>
       )}
 
@@ -1999,8 +1868,6 @@ export default function RDExpensesTab({
               </Typography>
             )}
           </Box>
-  );
-
           <IconButton
             onClick={handleCloseConfigureModal}
             sx={{
@@ -2031,7 +1898,7 @@ export default function RDExpensesTab({
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       {(() => {
                         const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                        const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                        const totalPractice = activities.reduce((sum, activity) => {
                           return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                         }, 0);
                         const isOverLimit = totalPractice > 100;
@@ -2051,18 +1918,14 @@ export default function RDExpensesTab({
                               ({activities.length} Activities)
                             </Typography>
                           </>
-                      
+                        );
                       })()}
                     </Box>
-  );
-
                   </Box>
-  );
-
                   
                   {(() => {
                     const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                    const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                    const totalPractice = activities.reduce((sum, activity) => {
                       return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                     }, 0);
                     
@@ -2083,9 +1946,7 @@ export default function RDExpensesTab({
                             Adjust practice percentages to total 100% or less.
                           </Typography>
                         </Box>
-  );
-
-                    
+                      );
                     }
                     return null;
                   })()}
@@ -2104,7 +1965,7 @@ export default function RDExpensesTab({
                     }}>
                       {(() => {
                         const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                        const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                        const totalPractice = activities.reduce((sum, activity) => {
                           return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                         }, 0);
                         
@@ -2130,7 +1991,7 @@ export default function RDExpensesTab({
                                 borderRight: currentLeft + width < Math.min(totalPractice, 100) ? '1px solid white' : 'none'
                               }}
                             />
-                        
+                          );
                           
                           currentLeft += width;
                           return segment;
@@ -2140,7 +2001,7 @@ export default function RDExpensesTab({
                       {/* Non-R&D Section */}
                       {(() => {
                         const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                        const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                        const totalPractice = activities.reduce((sum, activity) => {
                           return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                         }, 0);
                         const nonRDPercent = Math.max(0, 100 - totalPractice);
@@ -2157,18 +2018,16 @@ export default function RDExpensesTab({
                                 borderLeft: totalPractice > 0 ? '1px solid white' : 'none'
                               }}
                             />
-                        
+                          );
                         }
                         return null;
                       })()}
                     </Box>
-  );
-
                     
                     {/* Border overlay with overflow indicator */}
                     {(() => {
                       const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                      const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                      const totalPractice = activities.reduce((sum, activity) => {
                         return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                       }, 0);
                       const isOverLimit = totalPractice > 100;
@@ -2188,11 +2047,9 @@ export default function RDExpensesTab({
                             boxShadow: '0 0 0 2px rgba(211, 47, 47, 0.2)'
                           })
                         }} />
-                    
+                      );
                     })()}
                   </Box>
-  );
-
                   
                   {/* Practice Percentage Labels */}
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
@@ -2210,12 +2067,10 @@ export default function RDExpensesTab({
                           {activity.name}: {(employeePracticePercentages[activity.name] || activity.currentPracticePercent).toFixed(1)}%
                         </Typography>
                       </Box>
-  );
-
                     ))}
                     {(() => {
                       const activities = getEmployeeActivities(selectedEmployeeForConfig);
-                      const totalPractice = activities.filter(activity => employeeEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                      const totalPractice = activities.reduce((sum, activity) => {
                         return sum + (employeePracticePercentages[activity.name] || activity.currentPracticePercent);
                       }, 0);
                       const nonRDPercent = Math.max(0, 100 - totalPractice);
@@ -2234,21 +2089,13 @@ export default function RDExpensesTab({
                               Non-R&D: {nonRDPercent.toFixed(1)}%
                             </Typography>
                           </Box>
-  );
-
-                      
+                        );
                       }
                       return null;
                     })()}
                   </Box>
-  );
-
                 </Box>
-  );
-
               </Box>
-  );
-
 
               {/* Applied Percentage Breakdown */}
               <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
@@ -2264,14 +2111,12 @@ export default function RDExpensesTab({
                       const appliedPercentage = calculateEmployeeAppliedPercentage(
                         selectedEmployeeForConfig, 
                         getEmployeeActivities(selectedEmployeeForConfig)
-                    
+                      );
                       
                       return appliedPercentage.toFixed(1);
                     })()}%
                   </Typography>
                 </Box>
-  );
-
 
                 {/* Applied Percentage Progress Bar */}
                 <Box sx={{ mb: 3 }}>
@@ -2286,8 +2131,6 @@ export default function RDExpensesTab({
                       color="primary"
                     />
                   </Box>
-  );
-
                   
                   <Box sx={{ position: 'relative', width: '100%', height: 32, mb: 2, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ 
@@ -2334,18 +2177,14 @@ export default function RDExpensesTab({
                               }}
                               title={`${activity.name}: ${contributedApplied.toFixed(1)}%`}
                             />
-                        
+                          );
                           
                           currentLeft += width;
                           return segment;
                         });
                       })()}
                     </Box>
-  );
-
                   </Box>
-  );
-
                   
                   {/* Applied Percentage Labels */}
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
@@ -2373,18 +2212,12 @@ export default function RDExpensesTab({
                               fontSize: '0.75rem'
                             }}
                           />
-                      
+                        );
                       });
                     })()}
                     </Box>
-  );
-
                 </Box>
-  );
-
               </Box>
-  );
-
 
 
 
@@ -2402,46 +2235,14 @@ export default function RDExpensesTab({
                     
                     return (
                       <Card key={activity.name} sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
-                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box>
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                              {activity.name}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Applied Percentage: {calculateActivityAppliedPercentage(activity).toFixed(1)}%
-                            </Typography>
-                          </Box>
-  );
-
-                          <Tooltip title={employeeEnabledActivities[activity.name] !== false ? "Disable R&D Activity" : "Enable R&D Activity"}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <PowerIcon 
-                                sx={{ 
-                                  fontSize: 20, 
-                                  color: employeeEnabledActivities[activity.name] !== false ? 'success.main' : 'text.disabled'
-                                }} 
-                              />
-                              <Switch
-                                checked={employeeEnabledActivities[activity.name] !== false}
-                                onChange={(e) => {
-                                  setEmployeeEnabledActivities(prev => ({
-                                    ...prev,
-                                    [activity.name]: e.target.checked
-                                  }));
-                                }}
-                                size="small"
-                              />
-                            </Box>
-  );
-
-                          </Tooltip>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
                             {activity.name}
                           </Typography>
+                          <Typography variant="body2" color="text.secondary">
                             Applied Percentage: {calculateActivityAppliedPercentage(activity).toFixed(1)}%
                           </Typography>
                         </Box>
-  );
-
                         
                         <Box sx={{ p: 2 }}>
                           {/* Practice Percentage Slider */}
@@ -2494,27 +2295,9 @@ export default function RDExpensesTab({
                               }}
                             />
                           </Box>
-  );
 
-
-                          {/* Subcomponents Section - Accordion */}
-                          <Accordion 
-                            expanded={employeeAccordionStates[activity.name] || false}
-                            onChange={(_, isExpanded) => {
-                              setEmployeeAccordionStates(prev => ({
-                                ...prev,
-                                [activity.name]: isExpanded
-                              }));
-                            }}
-                            sx={{ mt: 2, boxShadow: 1 }}
-                          >
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                Subcomponents ({rdSubcomponents.length})
-                              </Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                              {rdSubcomponents.length > 0 ? (
+                          {/* Subcomponents Section */}
+                          {rdSubcomponents.length > 0 ? (
                             <Box>
                               <Typography variant="body2" gutterBottom sx={{ fontWeight: 600 }}>
                                 Subcomponents ({rdSubcomponents.length})
@@ -2529,8 +2312,6 @@ export default function RDExpensesTab({
                                     {activity.name}
                                   </Typography>
                                 </Box>
-  );
-
                                 
                                 <Box>
                                   <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -2579,24 +2360,12 @@ export default function RDExpensesTab({
                                             sx={{ mt: 1 }}
                                           />
                                         </Box>
-  );
-
                                       </Box>
-  );
-
                                     ))}
                                   </Box>
-  );
-
                                 </Box>
-  );
-
                               </Box>
-  );
-
                             </Box>
-  );
-
                           ) : (
                             <Box sx={{ 
                               p: 3, 
@@ -2619,29 +2388,15 @@ export default function RDExpensesTab({
                                 Expected localStorage key: qra_{selectedBusinessId}_{selectedYear}_{activity.name}
                               </Typography>
                             </Box>
-  );
-
-                          )}
-                            </AccordionDetails>
-                          </Accordion>
-                            </Box>
-  );
-
                           )}
                         </Box>
-  );
-
                       </Card>
-                  
+                    );
                   })}
                 </Box>
-  );
-
               </Box>
-  );
-
-  );
-
+            </Box>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
@@ -2677,8 +2432,6 @@ export default function RDExpensesTab({
               </Typography>
             )}
           </Box>
-  );
-
           <IconButton
             onClick={handleCloseContractorConfigureModal}
             sx={{
@@ -2704,15 +2457,13 @@ export default function RDExpensesTab({
                   <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main' }}>
                     {(() => {
                       const activities = getContractorActivities(selectedContractorForConfig);
-                      const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                      const totalPractice = activities.reduce((sum, activity) => {
                         return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                       }, 0);
                       return totalPractice.toFixed(1);
                     })()}%
                   </Typography>
                 </Box>
-  );
-
 
                 {/* Practice Percentage Progress Bar */}
                 <Box sx={{ mb: 3 }}>
@@ -2727,8 +2478,6 @@ export default function RDExpensesTab({
                       color="primary"
                     />
                   </Box>
-  );
-
                   
                   {/* Practice Percentage Progress Bar */}
                   <Box sx={{ position: 'relative', width: '100%', height: 32, mb: 2 }}>
@@ -2744,7 +2493,7 @@ export default function RDExpensesTab({
                     }}>
                       {(() => {
                         const activities = getContractorActivities(selectedContractorForConfig);
-                        const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                        const totalPractice = activities.reduce((sum, activity) => {
                           return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                         }, 0);
                         
@@ -2770,7 +2519,7 @@ export default function RDExpensesTab({
                                 borderRight: currentLeft + width < Math.min(totalPractice, 100) ? '1px solid white' : 'none'
                               }}
                             />
-                        
+                          );
                           
                           currentLeft += width;
                           return segment;
@@ -2780,7 +2529,7 @@ export default function RDExpensesTab({
                       {/* Non-R&D Section */}
                       {(() => {
                         const activities = getContractorActivities(selectedContractorForConfig);
-                        const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                        const totalPractice = activities.reduce((sum, activity) => {
                           return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                         }, 0);
                         const nonRDPercent = Math.max(0, 100 - totalPractice);
@@ -2797,18 +2546,16 @@ export default function RDExpensesTab({
                                 borderLeft: totalPractice > 0 ? '1px solid white' : 'none'
                               }}
                             />
-                        
+                          );
                         }
                         return null;
                       })()}
                     </Box>
-  );
-
                     
                     {/* Border overlay with overflow indicator */}
                     {(() => {
                       const activities = getContractorActivities(selectedContractorForConfig);
-                      const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                      const totalPractice = activities.reduce((sum, activity) => {
                         return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                       }, 0);
                       const isOverLimit = totalPractice > 100;
@@ -2828,11 +2575,9 @@ export default function RDExpensesTab({
                             boxShadow: '0 0 0 2px rgba(211, 47, 47, 0.2)'
                           })
                         }} />
-                    
+                      );
                     })()}
                   </Box>
-  );
-
                   
                   {/* Practice Percentage Labels */}
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
@@ -2850,12 +2595,10 @@ export default function RDExpensesTab({
                           {activity.name}: {(contractorPracticePercentages[activity.name] || activity.currentPracticePercent).toFixed(1)}%
                         </Typography>
                       </Box>
-  );
-
                     ))}
                     {(() => {
                       const activities = getContractorActivities(selectedContractorForConfig);
-                      const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                      const totalPractice = activities.reduce((sum, activity) => {
                         return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                       }, 0);
                       const nonRDPercent = Math.max(0, 100 - totalPractice);
@@ -2874,21 +2617,13 @@ export default function RDExpensesTab({
                               Non-R&D: {nonRDPercent.toFixed(1)}%
                             </Typography>
                           </Box>
-  );
-
-                      
+                        );
                       }
                       return null;
                     })()}
                   </Box>
-  );
-
                 </Box>
-  );
-
               </Box>
-  );
-
 
               {/* Applied Percentage Breakdown */}
               <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
@@ -2904,14 +2639,12 @@ export default function RDExpensesTab({
                       const appliedPercentage = calculateContractorAppliedPercentage(
                         selectedContractorForConfig, 
                         getContractorActivities(selectedContractorForConfig)
-                    
+                      );
                       
                       return appliedPercentage.toFixed(1);
                     })()}%
                   </Typography>
                 </Box>
-  );
-
 
                  {/* Applied Percentage Progress Bar */}
                  <Box sx={{ mb: 3 }}>
@@ -2926,8 +2659,6 @@ export default function RDExpensesTab({
                        color="primary"
                      />
                    </Box>
-  );
-
                    
                    <Box sx={{ position: 'relative', width: '100%', height: 32, mb: 2, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
                      <Box sx={{ 
@@ -2974,18 +2705,14 @@ export default function RDExpensesTab({
                                }}
                                title={`${activity.name}: ${contributedApplied.toFixed(1)}%`}
                              />
-                         
+                           );
                            
                            currentLeft += width;
                            return segment;
                          });
                        })()}
                      </Box>
-  );
-
                    </Box>
-  );
-
                    
                    {/* Applied Percentage Labels */}
                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
@@ -3013,15 +2740,11 @@ export default function RDExpensesTab({
                                fontSize: '0.75rem'
                              }}
                            />
-                       
+                         );
                        });
                      })()}
                    </Box>
-  );
-
                  </Box>
-  );
-
 
                  {/* Practice Percentage Total Check */}
                  <Box sx={{ mb: 2 }}>
@@ -3032,7 +2755,7 @@ export default function RDExpensesTab({
                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                        {(() => {
                          const activities = getContractorActivities(selectedContractorForConfig);
-                         const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                         const totalPractice = activities.reduce((sum, activity) => {
                            return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                          }, 0);
                          const isOverLimit = totalPractice > 100;
@@ -3052,18 +2775,14 @@ export default function RDExpensesTab({
                                ({activities.length} Activities)
                              </Typography>
                            </>
-                       
+                         );
                        })()}
                      </Box>
-  );
-
                    </Box>
-  );
-
                    
                    {(() => {
                      const activities = getContractorActivities(selectedContractorForConfig);
-                     const totalPractice = activities.filter(activity => contractorEnabledActivities[activity.name] !== false).reduce((sum, activity) => {
+                     const totalPractice = activities.reduce((sum, activity) => {
                        return sum + (contractorPracticePercentages[activity.name] || activity.currentPracticePercent);
                      }, 0);
                      
@@ -3084,18 +2803,12 @@ export default function RDExpensesTab({
                              Adjust practice percentages to total 100% or less.
                            </Typography>
                          </Box>
-  );
-
-                     
+                       );
                      }
                      return null;
                    })()}
                  </Box>
-  );
-
                </Box>
-  );
-
 
               {/* Activities and Subcomponents Configuration */}
               <Box sx={{ flex: 1, overflow: 'auto' }}>
@@ -3111,46 +2824,14 @@ export default function RDExpensesTab({
                     
                     return (
                       <Card key={activity.name} sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
-                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box>
-                            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                              {activity.name}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Applied Percentage: {calculateActivityAppliedPercentage(activity).toFixed(1)}%
-                            </Typography>
-                          </Box>
-  );
-
-                          <Tooltip title={contractorEnabledActivities[activity.name] !== false ? "Disable R&D Activity" : "Enable R&D Activity"}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <PowerIcon 
-                                sx={{ 
-                                  fontSize: 20, 
-                                  color: contractorEnabledActivities[activity.name] !== false ? 'success.main' : 'text.disabled'
-                                }} 
-                              />
-                              <Switch
-                                checked={contractorEnabledActivities[activity.name] !== false}
-                                onChange={(e) => {
-                                  setContractorEnabledActivities(prev => ({
-                                    ...prev,
-                                    [activity.name]: e.target.checked
-                                  }));
-                                }}
-                                size="small"
-                              />
-                            </Box>
-  );
-
-                          </Tooltip>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderBottom: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
                             {activity.name}
                           </Typography>
+                          <Typography variant="body2" color="text.secondary">
                             Applied Percentage: {calculateContractorActivityAppliedPercentage(activity).toFixed(1)}% (65% rule will be applied)
                           </Typography>
                         </Box>
-  );
-
                         
                         <Box sx={{ p: 2 }}>
                           {/* Practice Percentage Slider */}
@@ -3203,27 +2884,9 @@ export default function RDExpensesTab({
                               }}
                             />
                           </Box>
-  );
 
-
-                          {/* Subcomponents Section - Accordion */}
-                          <Accordion 
-                            expanded={contractorAccordionStates[activity.name] || false}
-                            onChange={(_, isExpanded) => {
-                              setContractorAccordionStates(prev => ({
-                                ...prev,
-                                [activity.name]: isExpanded
-                              }));
-                            }}
-                            sx={{ mt: 2, boxShadow: 1 }}
-                          >
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                Subcomponents ({rdSubcomponents.length})
-                              </Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                              {rdSubcomponents.length > 0 ? (
+                          {/* Subcomponents Section */}
+                          {rdSubcomponents.length > 0 ? (
                             <Box>
                               <Typography variant="body2" gutterBottom sx={{ fontWeight: 600 }}>
                                 Subcomponents ({rdSubcomponents.length})
@@ -3238,8 +2901,6 @@ export default function RDExpensesTab({
                                     {activity.name}
                                   </Typography>
                                 </Box>
-  );
-
                                 
                                 <Box>
                                   <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -3288,24 +2949,12 @@ export default function RDExpensesTab({
                                             sx={{ mt: 1 }}
                                           />
                                         </Box>
-  );
-
                                       </Box>
-  );
-
                                     ))}
                                   </Box>
-  );
-
                                 </Box>
-  );
-
                               </Box>
-  );
-
                             </Box>
-  );
-
                           ) : (
                             <Box sx={{ 
                               p: 3, 
@@ -3328,29 +2977,15 @@ export default function RDExpensesTab({
                                 Expected localStorage key: qra_{selectedBusinessId}_{selectedYear}_{activity.name}
                               </Typography>
                             </Box>
-  );
-
-                          )}
-                            </AccordionDetails>
-                          </Accordion>
-                            </Box>
-  );
-
                           )}
                         </Box>
-  );
-
                       </Card>
-                  
+                    );
                   })}
                 </Box>
-  );
-
               </Box>
-  );
-
-  );
-
+            </Box>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
@@ -3364,6 +2999,4 @@ export default function RDExpensesTab({
       </Dialog>
     </Box>
   );
-
-}
-
+} 
