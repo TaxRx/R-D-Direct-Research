@@ -48,41 +48,7 @@ import { ExpensesService } from '../../services/expensesService';
 import { CSVExportService } from '../../services/csvExportService';
 import { approvalsService } from '../../services/approvals';
 import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
-
-// Currency formatting utilities
-const formatCurrencyInput = (value: string): string => {
-  // Remove all non-numeric characters except decimal point
-  const numericValue = value.replace(/[^\d.]/g, '');
-  
-  // Handle decimal places (max 2)
-  const parts = numericValue.split('.');
-  if (parts.length > 2) {
-    parts.length = 2;
-  }
-  if (parts[1] && parts[1].length > 2) {
-    parts[1] = parts[1].substring(0, 2);
-  }
-  
-  const cleanValue = parts.join('.');
-  
-  // Format with commas
-  if (cleanValue) {
-    const num = parseFloat(cleanValue);
-    if (!isNaN(num)) {
-      return new Intl.NumberFormat('en-US', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      }).format(num);
-    }
-  }
-  
-  return cleanValue;
-};
-
-const parseCurrencyInput = (formattedValue: string): string => {
-  // Remove all non-numeric characters except decimal point
-  return formattedValue.replace(/[^\d.]/g, '');
-};
+import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from './RDExpensesTab/utils/currencyFormatting';
 
 // Helper function to flatten hierarchical roles (same as in IdentifyRolesTab)
 const flattenAllRoles = (nodes: RoleNode[]): RoleNode[] => {
@@ -1164,14 +1130,7 @@ export default function RDExpensesTab({
     return role?.name || 'Unknown Role';
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+
 
   // Helper function to calculate applied percentage for a single activity using full QRA formula
   const calculateActivityAppliedPercentage = (activity: any): number => {
