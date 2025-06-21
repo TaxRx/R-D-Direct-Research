@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -171,8 +171,23 @@ export default function RDExpensesTab({
   const isExpensesApproved = approvalsService.isTabApproved('expenses', selectedYear);
 
   // Get current business and roles
-  const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
-  const businessRoles = selectedBusiness?.rolesByYear?.[selectedYear] || [];
+  const selectedBusiness = useMemo(() => {
+    return businesses.find(b => b.id === selectedBusinessId);
+  }, [businesses, selectedBusinessId]);
+  
+  const businessRoles = useMemo(() => {
+    return selectedBusiness?.rolesByYear?.[selectedYear] || [];
+  }, [selectedBusiness, selectedYear]);
+
+  const researchActivities = useMemo(() => {
+    return selectedBusiness?.years[selectedYear]?.activities ? 
+           Object.values(selectedBusiness.years[selectedYear].activities) : 
+           [];
+  }, [selectedBusiness, selectedYear]);
+
+  const qraData = useMemo(() => {
+    return selectedBusiness?.years[selectedYear]?.qraData || [];
+  }, [selectedBusiness, selectedYear]);
 
   const loadEmployees = useCallback(() => {
     const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
@@ -246,7 +261,7 @@ export default function RDExpensesTab({
       );
       setRoles(rolesWithAppliedPercentages);
     }
-  }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles, loadEmployees, loadContractors, loadSupplies, loadAvailableYears]);
+  }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles, loadEmployees, loadContractors, loadSupplies, loadAvailableYears, calculateRoleAppliedPercentages]);
 
   const handleFormChange = (field: keyof ExpenseFormData, value: string | boolean) => {
     if (field === 'wage' && typeof value === 'string') {
@@ -1274,7 +1289,7 @@ export default function RDExpensesTab({
         </Toolbar>
       </AppBar>
 
-      {/* Summary Card */}
+      {/* Enhanced Summary Card */}
       <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
         <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -1282,44 +1297,166 @@ export default function RDExpensesTab({
           </Typography>
         </Box>
         <Box sx={{ p: 3 }}>
+          {/* Color-coded Progress Bar */}
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="body1" sx={{ fontWeight: 600, mb: 2 }}>
+              Applied R&D Cost Breakdown
+            </Typography>
+            <Box sx={{ position: 'relative', width: '100%', height: 40, mb: 2 }}>
+              <Box sx={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: 0, 
+                width: '100%', 
+                height: '100%',
+                bgcolor: 'grey.200',
+                borderRadius: 2,
+                overflow: 'hidden'
+              }}>
+                {(() => {
+                  const totalApplied = yearTotals.totalAppliedWages + yearTotals.totalAppliedContractorAmounts + yearTotals.totalAppliedSupplyAmounts;
+                  let currentLeft = 0;
+                  
+                  const segments = [
+                    { 
+                      value: yearTotals.totalAppliedWages, 
+                      color: '#1976d2', 
+                      label: 'Wages',
+                      count: yearTotals.employeeCount
+                    },
+                    { 
+                      value: yearTotals.totalAppliedContractorAmounts, 
+                      color: '#2e7d32', 
+                      label: 'Contractors',
+                      count: yearTotals.contractorCount
+                    },
+                    { 
+                      value: yearTotals.totalAppliedSupplyAmounts, 
+                      color: '#ed6c02', 
+                      label: 'Supplies',
+                      count: yearTotals.supplyCount
+                    }
+                  ].filter(segment => segment.value > 0);
+                  
+                  return segments.map((segment, idx) => {
+                    const width = totalApplied > 0 ? (segment.value / totalApplied) * 100 : 0;
+                    
+                    if (width <= 0) return null;
+                    
+                    const segmentBox = (
+                      <Box
+                        key={segment.label}
+                        sx={{
+                          position: 'absolute',
+                          left: `${currentLeft}%`,
+                          width: `${width}%`,
+                          height: '100%',
+                          bgcolor: segment.color,
+                          borderRight: currentLeft + width < 100 ? '2px solid white' : 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            color: 'white', 
+                            fontWeight: 600,
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          {width > 15 ? `${width.toFixed(1)}%` : ''}
+                        </Typography>
+                      </Box>
+                    );
+                    
+                    currentLeft += width;
+                    return segmentBox;
+                  });
+                })()}
+              </Box>
+            </Box>
+            
+            {/* Legend */}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
+              {[
+                { color: '#1976d2', label: 'Wages', value: yearTotals.totalAppliedWages, count: yearTotals.employeeCount },
+                { color: '#2e7d32', label: 'Contractors', value: yearTotals.totalAppliedContractorAmounts, count: yearTotals.contractorCount },
+                { color: '#ed6c02', label: 'Supplies', value: yearTotals.totalAppliedSupplyAmounts, count: yearTotals.supplyCount }
+              ].filter(item => item.value > 0).map((item) => (
+                <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ 
+                    width: 16, 
+                    height: 16, 
+                    bgcolor: item.color, 
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'grey.300'
+                  }} />
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {item.label} ({item.count})
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatCurrency(item.value)}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+          {/* Statistics Grid */}
           <Grid container spacing={3}>
             <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
+              <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'primary.50', borderRadius: 2 }}>
                 <Typography variant="h4" color="primary" sx={{ fontWeight: 600 }}>
                   {yearTotals.employeeCount}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Employees
                 </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" color="primary" sx={{ fontWeight: 600 }}>
-                  {formatCurrency(yearTotals.totalWages)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Total Wages
+                <Typography variant="caption" color="text.secondary">
+                  {formatCurrency(yearTotals.totalWages)} total
                 </Typography>
               </Box>
             </Grid>
             <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
+              <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'success.50', borderRadius: 2 }}>
                 <Typography variant="h4" color="success.main" sx={{ fontWeight: 600 }}>
-                  {formatCurrency(yearTotals.totalAppliedWages)}
+                  {yearTotals.contractorCount}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Applied R&D Amount
+                  Contractors
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatCurrency(yearTotals.totalContractorAmounts)} total
                 </Typography>
               </Box>
             </Grid>
             <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
+              <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'warning.50', borderRadius: 2 }}>
                 <Typography variant="h4" color="warning.main" sx={{ fontWeight: 600 }}>
-                  {yearTotals.businessOwnerCount}
+                  {yearTotals.supplyCount}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Business Owners
+                  Supplies
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatCurrency(yearTotals.totalSupplyValues)} total
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'info.50', borderRadius: 2 }}>
+                <Typography variant="h4" color="info.main" sx={{ fontWeight: 600 }}>
+                  {formatCurrency(yearTotals.totalAppliedWages + yearTotals.totalAppliedContractorAmounts + yearTotals.totalAppliedSupplyAmounts)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Total Applied R&D
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {formatCurrency(yearTotals.totalWages + yearTotals.totalContractorAmounts + yearTotals.totalSupplyValues)} identified
                 </Typography>
               </Box>
             </Grid>
