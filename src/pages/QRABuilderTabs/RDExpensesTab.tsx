@@ -40,7 +40,8 @@ import {
   Person as PersonIcon,
   Business as BusinessIcon,
   Close as CloseIcon,
-  FileDownload as FileDownloadIcon
+  FileDownload as FileDownloadIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 import { Business, RoleNode, Role } from '../../types/Business';
 import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, EMPTY_SUPPLY_FORM, NON_RD_ROLE, OTHER_ROLE, SUPPLY_CATEGORIES } from '../../types/Employee';
@@ -50,6 +51,7 @@ import { approvalsService } from '../../services/approvals';
 import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
 import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from './RDExpensesTab/utils/currencyFormatting';
 import { flattenAllRoles, getRoleName } from './RDExpensesTab/utils/roleHelpers';
+import { ReportingDashboard } from '../../components/expenses/reports/ReportingDashboard';
 
 // Calculate role applied percentages from activities
 const calculateRoleAppliedPercentages = (
@@ -127,7 +129,7 @@ export default function RDExpensesTab({
   setApprovedTabs,
   onEdit,
 }: RDExpensesTabProps) {
-  const [activeExpenseTab, setActiveExpenseTab] = useState(0);
+  const [selectedExpenseType, setSelectedExpenseType] = useState('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [supplies, setSupplies] = useState<Supply[]>([]);
@@ -364,42 +366,59 @@ export default function RDExpensesTab({
   const handleToggleEmployeeLock = (employee: Employee) => {
     const updatedEmployee = { ...employee, isLocked: !employee.isLocked };
     ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
-    loadEmployees();
-    onEdit();
+    setEmployees(prev => prev.map(e => e.id === employee.id ? updatedEmployee : e));
   };
 
   const handleAddContractor = () => {
-    const validationError = ExpensesService.validateContractor(
-      contractorFormData.contractorType,
-      contractorFormData.firstName,
-      contractorFormData.lastName,
-      contractorFormData.businessName,
-      contractorFormData.totalAmount,
-      contractorFormData.roleId,
-      contractorFormData.customRoleName
-    );
+    setContractorFormError('');
+    const parsedAmount = parseFloat(parseCurrencyInput(contractorFormData.totalAmount));
 
-    if (validationError) {
-      setContractorFormError(validationError);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setContractorFormError('Please enter a valid total amount.');
+      return;
+    }
+    if (contractorFormData.contractorType === 'individual' && (!contractorFormData.firstName || !contractorFormData.lastName)) {
+      setContractorFormError('Please enter both first and last name for an individual.');
+      return;
+    }
+    if (contractorFormData.contractorType === 'business' && !contractorFormData.businessName) {
+      setContractorFormError('Please enter a business name.');
+      return;
+    }
+    if (!contractorFormData.roleId) {
+      setContractorFormError('Please select a role.');
+      return;
+    }
+    if (contractorFormData.roleId === OTHER_ROLE.id && !contractorFormData.customRoleName) {
+      setContractorFormError('Please enter a custom role name.');
       return;
     }
 
-    const newContractor = ExpensesService.createContractor(
-      contractorFormData.contractorType,
-      contractorFormData.firstName,
-      contractorFormData.lastName,
-      contractorFormData.businessName,
-      parseFloat(parseCurrencyInput(contractorFormData.totalAmount)),
-      contractorFormData.roleId,
-      contractorFormData.customRoleName,
-      roles
-    );
+    // Get activities associated with the contractor's role
+    const activities = getContractorActivities({ roleId: contractorFormData.roleId } as Contractor);
+
+    const totalPercentage = activities.reduce((sum, activity) => {
+        return sum + (activity.currentPracticePercent || 0);
+    }, 0);
+    
+    // Apply 65% rule for contractors
+    const appliedAmount = (totalPercentage / 100) * parsedAmount * 0.65;
+
+    const newContractor: Contractor = {
+      id: `new-contractor-${Date.now()}`,
+      ...contractorFormData,
+      totalAmount: parsedAmount,
+      appliedAmount: appliedAmount,
+      appliedPercentage: totalPercentage,
+      isActive: true,
+      isLocked: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
     ExpensesService.saveContractor(selectedBusinessId, selectedYear, newContractor);
-    loadContractors();
+    setContractors(prev => [...prev, newContractor]);
     setContractorFormData(EMPTY_CONTRACTOR_FORM);
-    setContractorFormError('');
-    onEdit();
   };
 
   const handleDeleteContractor = (contractorId: string) => {
@@ -1465,9 +1484,10 @@ export default function RDExpensesTab({
       </Card>
 
       {/* Expense Category Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={activeExpenseTab} onChange={(_, newValue) => setActiveExpenseTab(newValue)}>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, mt: 2 }}>
+        <Tabs value={selectedExpenseType} onChange={(_, newValue) => setSelectedExpenseType(newValue)}>
           <Tab 
+            value="employees"
             label={
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <PersonIcon sx={{ mr: 1 }} />
@@ -1476,6 +1496,7 @@ export default function RDExpensesTab({
             }
           />
           <Tab 
+            value="contractors"
             label={
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <BusinessIcon sx={{ mr: 1 }} />
@@ -1483,7 +1504,8 @@ export default function RDExpensesTab({
               </Box>
             }
           />
-          <Tab 
+          <Tab
+            value="supplies"
             label={
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <CalculateIcon sx={{ mr: 1 }} />
@@ -1491,163 +1513,171 @@ export default function RDExpensesTab({
               </Box>
             }
           />
+          <Tab
+            value="reporting"
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <AssessmentIcon sx={{ mr: 1 }} />
+                Reporting & Analytics
+              </Box>
+            }
+          />
         </Tabs>
       </Box>
 
-      {/* Wages Tab Content */}
-      {activeExpenseTab === 0 && (
-        <Box>
+      {selectedExpenseType === 'employees' && (
+        <Box sx={{ p: 3 }}>
           {/* Quick Employee Entry Form - MOVED INSIDE WAGES TAB */}
-          <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'primary.50' }}>
-              <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
-                <AddIcon sx={{ mr: 1 }} />
-                Quick Employee Entry
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Use Tab to navigate fields, Enter to add employee
-              </Typography>
-            </Box>
-            <Box sx={{ p: 3 }}>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} sm={6} md={2}>
-                  <TextField
-                    inputRef={firstNameRef}
-                    label="First Name"
-                    value={formData.firstName}
-                    onChange={(e) => handleFormChange('firstName', e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, lastNameRef)}
-                    fullWidth
-                    size="small"
-                    error={!!formError && formError.includes('First name')}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                  <TextField
-                    inputRef={lastNameRef}
-                    label="Last Name"
-                    value={formData.lastName}
-                    onChange={(e) => handleFormChange('lastName', e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, wageRef)}
-                    fullWidth
-                    size="small"
-                    error={!!formError && formError.includes('Last name')}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                  <TextField
-                    inputRef={wageRef}
-                    label="Annual Wage"
-                    value={formData.wage}
-                    onChange={(e) => handleFormChange('wage', e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, roleRef)}
-                    fullWidth
-                    size="small"
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    }}
-                    placeholder="50,000"
-                    error={!!formError && formError.includes('Wage')}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                  <FormControl fullWidth size="small" error={!!formError && formError.includes('Role')}>
-                    <InputLabel>Role</InputLabel>
-                    <Select
-                      inputRef={roleRef}
-                      value={formData.roleId}
-                      onChange={(e) => handleFormChange('roleId', e.target.value)}
-                      label="Role"
-                    >
-                      {availableRoles.map((role) => (
-                        <MenuItem key={role.id} value={role.id}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {role.id === NON_RD_ROLE.id ? (
-                              <BusinessIcon sx={{ fontSize: 16, color: 'grey.500' }} />
-                            ) : role.id === OTHER_ROLE.id ? (
-                              <EditIcon sx={{ fontSize: 16, color: 'secondary.main' }} />
-                            ) : (
-                              <PersonIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-                            )}
-                            {role.name}
-                          </Box>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                
-                {/* Custom Role Name Field - Only show when Other is selected */}
-                {formData.roleId === OTHER_ROLE.id && (
-                  <Grid item xs={12} sm={6} md={2}>
-                    <TextField
-                      value={formData.customRoleName}
-                      onChange={(e) => handleFormChange('customRoleName', e.target.value)}
-                      fullWidth
-                      size="small"
-                      label="Custom Role Name"
-                      placeholder="e.g., Senior Developer"
-                      error={!!formError && formError.includes('Custom role name')}
-                    />
-                  </Grid>
-                )}
-                
-                <Grid item xs={12} sm={6} md={2}>
-                  <Tooltip title="Designate if this employee is a business owner for tax reporting">
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          inputRef={ownerRef}
-                          checked={formData.isBusinessOwner}
-                          onChange={(e) => handleFormChange('isBusinessOwner', e.target.checked)}
-                          size="small"
-                        />
-                      }
-                      label="Owner"
-                    />
-                  </Tooltip>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                  <Button
-                    variant="contained"
-                    onClick={handleAddEmployee}
-                    fullWidth
-                    startIcon={<AddIcon />}
-                    disabled={!formData.firstName || !formData.lastName || !formData.wage || !formData.roleId || (formData.roleId === OTHER_ROLE.id && !formData.customRoleName)}
-                  >
-                    Add Employee
-                  </Button>
-                </Grid>
+      <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'primary.50' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+            <AddIcon sx={{ mr: 1 }} />
+            Quick Employee Entry
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Use Tab to navigate fields, Enter to add employee
+          </Typography>
+        </Box>
+        <Box sx={{ p: 3 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                inputRef={firstNameRef}
+                label="First Name"
+                value={formData.firstName}
+                onChange={(e) => handleFormChange('firstName', e.target.value)}
+                onKeyPress={(e) => handleKeyPress(e, lastNameRef)}
+                fullWidth
+                size="small"
+                error={!!formError && formError.includes('First name')}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                inputRef={lastNameRef}
+                label="Last Name"
+                value={formData.lastName}
+                onChange={(e) => handleFormChange('lastName', e.target.value)}
+                onKeyPress={(e) => handleKeyPress(e, wageRef)}
+                fullWidth
+                size="small"
+                error={!!formError && formError.includes('Last name')}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                inputRef={wageRef}
+                label="Annual Wage"
+                value={formData.wage}
+                onChange={(e) => handleFormChange('wage', e.target.value)}
+                onKeyPress={(e) => handleKeyPress(e, roleRef)}
+                fullWidth
+                size="small"
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+                placeholder="50,000"
+                error={!!formError && formError.includes('Wage')}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small" error={!!formError && formError.includes('Role')}>
+                <InputLabel>Role</InputLabel>
+                <Select
+                  inputRef={roleRef}
+                  value={formData.roleId}
+                  onChange={(e) => handleFormChange('roleId', e.target.value)}
+                  label="Role"
+                >
+                  {availableRoles.map((role) => (
+                    <MenuItem key={role.id} value={role.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {role.id === NON_RD_ROLE.id ? (
+                          <BusinessIcon sx={{ fontSize: 16, color: 'grey.500' }} />
+                        ) : role.id === OTHER_ROLE.id ? (
+                          <EditIcon sx={{ fontSize: 16, color: 'secondary.main' }} />
+                        ) : (
+                          <PersonIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                        )}
+                        {role.name}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            {/* Custom Role Name Field - Only show when Other is selected */}
+            {formData.roleId === OTHER_ROLE.id && (
+              <Grid item xs={12} sm={6} md={2}>
+                <TextField
+                  value={formData.customRoleName}
+                  onChange={(e) => handleFormChange('customRoleName', e.target.value)}
+                  fullWidth
+                  size="small"
+                  label="Custom Role Name"
+                  placeholder="e.g., Senior Developer"
+                  error={!!formError && formError.includes('Custom role name')}
+                />
               </Grid>
-              {formError && (
-                <Alert severity="error" sx={{ mt: 2 }}>
-                  {formError}
-                </Alert>
-              )}
-            </Box>
-          </Card>
+            )}
+            
+            <Grid item xs={12} sm={6} md={2}>
+              <Tooltip title="Designate if this employee is a business owner for tax reporting">
+                <FormControlLabel
+                  control={
+                    <Switch
+                      inputRef={ownerRef}
+                      checked={formData.isBusinessOwner}
+                      onChange={(e) => handleFormChange('isBusinessOwner', e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label="Owner"
+                />
+              </Tooltip>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="contained"
+                onClick={handleAddEmployee}
+                fullWidth
+                startIcon={<AddIcon />}
+                disabled={!formData.firstName || !formData.lastName || !formData.wage || !formData.roleId || (formData.roleId === OTHER_ROLE.id && !formData.customRoleName)}
+              >
+                Add Employee
+              </Button>
+            </Grid>
+          </Grid>
+          {formError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {formError}
+            </Alert>
+          )}
+        </Box>
+      </Card>
 
           {/* Employee List - SAME STRUCTURE AS BEFORE */}
-          <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Employee Wages
-                  </Typography>
-                  <Chip 
-                    label={`${employees.length} employee${employees.length !== 1 ? 's' : ''}`} 
-                    size="small" 
-                    color="primary"
-                    variant="outlined"
-                  />
-                </Box>
-                <Typography variant="body2" color="text.secondary">
-                  Total Applied: {formatCurrency(yearTotals.totalAppliedWages)}
+        <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+          <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  Employee Wages
                 </Typography>
+                <Chip 
+                  label={`${employees.length} employee${employees.length !== 1 ? 's' : ''}`} 
+                  size="small" 
+                  color="primary"
+                  variant="outlined"
+                />
               </Box>
+              <Typography variant="body2" color="text.secondary">
+                Total Applied: {formatCurrency(yearTotals.totalAppliedWages)}
+              </Typography>
             </Box>
+          </Box>
 
           <Box sx={{ p: 2 }}>
             {employees.length === 0 ? (
@@ -1816,9 +1846,8 @@ export default function RDExpensesTab({
         </Box>
       )}
 
-      {/* Contractors Tab Content */}
-      {activeExpenseTab === 1 && (
-        <Box>
+      {selectedExpenseType === 'contractors' && (
+        <Box sx={{ p: 3 }}>
           {/* Quick Contractor Entry Form - MOVED ABOVE CONTRACTOR LIST */}
           <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
             <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'primary.50' }}>
@@ -1952,7 +1981,7 @@ export default function RDExpensesTab({
           </Card>
 
           {/* Contractor List - SAME STRUCTURE AS WAGES TAB */}
-          <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+        <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
             <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1976,13 +2005,13 @@ export default function RDExpensesTab({
             <Box sx={{ p: 2 }}>
               {contractors.length === 0 ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <BusinessIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
+            <BusinessIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
                     No Contractors Added
-                  </Typography>
-                  <Typography color="text.secondary">
+            </Typography>
+            <Typography color="text.secondary">
                     Use the quick entry form above to add your first contractor.
-                  </Typography>
+            </Typography>
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -2142,14 +2171,13 @@ export default function RDExpensesTab({
                   })}
                 </Box>
               )}
-            </Box>
-          </Card>
+          </Box>
+        </Card>
         </Box>
       )}
 
-      {/* Supplies Tab Content */}
-      {activeExpenseTab === 2 && (
-        <Box>
+      {selectedExpenseType === 'supplies' && (
+        <Box sx={{ p: 3 }}>
           {/* Quick Supply Entry Form */}
           <Card elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
             <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'secondary.50' }}>
@@ -2252,7 +2280,7 @@ export default function RDExpensesTab({
           </Card>
 
           {/* Supply List */}
-          <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+        <Card elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
             <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2276,13 +2304,13 @@ export default function RDExpensesTab({
             <Box sx={{ p: 2 }}>
               {supplies.length === 0 ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <CalculateIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
+            <CalculateIcon sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" gutterBottom>
                     No Supplies Added
-                  </Typography>
-                  <Typography color="text.secondary">
+            </Typography>
+            <Typography color="text.secondary">
                     Use the quick entry form above to add your first supply.
-                  </Typography>
+            </Typography>
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -2405,8 +2433,20 @@ export default function RDExpensesTab({
                   ))}
                 </Box>
               )}
-            </Box>
-          </Card>
+          </Box>
+        </Card>
+        </Box>
+      )}
+
+      {selectedExpenseType === 'reporting' && (
+        <Box sx={{ p: 3 }}>
+          <ReportingDashboard
+            employees={employees}
+            contractors={contractors}
+            supplies={supplies}
+            selectedYear={selectedYear}
+            isExpensesApproved={isExpensesApproved}
+          />
         </Box>
       )}
 

@@ -58,6 +58,7 @@ export const ContractorForm: React.FC<ContractorFormProps> = ({
             <FormControl fullWidth size="small">
               <InputLabel>Type</InputLabel>
               <Select
+                label="Type"
                 value={formData.contractorType}
                 onChange={(e) => onFormChange('contractorType', e.target.value)}
                 disabled={disabled}
