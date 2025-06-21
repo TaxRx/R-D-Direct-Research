@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { QRAModalData } from '../components/qra/QRAModal/QRAModal';
+import { Employee, Contractor, Supply } from '../types/Employee';
+import { Business } from '../types/Business';
+import { ExpensesService } from '../services/expensesService';
+import { useQRACalculations } from './expenses/useQRACalculations';
+import { useActivityCalculations } from './expenses/useActivityCalculations';
 
 // Types
 interface QRAData {

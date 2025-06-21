@@ -87,6 +87,7 @@ export interface Business {
       activities: {
         [activity: string]: any;
       };
+      qraData?: Record<string, any>;
     };
   };
 } 

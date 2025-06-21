@@ -90,6 +90,27 @@ export const useExpensesState = (
     return yearData?.qraData || {};
   }, [selectedBusiness, selectedYear]);
 
+  // Calculation functions (placeholders - these will be implemented with actual logic)
+  const calculateEmployeeAppliedPercentage = useCallback((employee: Employee): number => {
+    // TODO: Implement actual calculation logic from main component
+    return employee.appliedPercentage || 0;
+  }, []);
+
+  const calculateContractorAppliedPercentage = useCallback((contractor: Contractor): number => {
+    // TODO: Implement actual calculation logic from main component
+    return contractor.appliedPercentage || 0;
+  }, []);
+
+  const calculateSupplyAppliedPercentage = useCallback((supply: Supply): number => {
+    // TODO: Implement actual calculation logic from main component
+    return supply.appliedPercentage || 0;
+  }, []);
+
+  const calculateRoleAppliedPercentages = useCallback(() => {
+    // TODO: Implement actual calculation logic from main component
+    return [];
+  }, []);
+
   // Data loading functions
   const loadEmployees = useCallback(() => {
     const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
@@ -115,7 +136,7 @@ export const useExpensesState = (
     const supplyData = ExpensesService.getSupplies(selectedBusinessId, selectedYear);
     const updatedSupplies = supplyData.map(supply => ({
       ...supply,
-      activities: getSupplyActivities(supply),
+      activities: getSupplyActivities(),
       appliedPercentage: calculateSupplyAppliedPercentage(supply)
     }));
     setSupplies(updatedSupplies);
@@ -125,27 +146,6 @@ export const useExpensesState = (
     const years = ExpensesService.getAvailableYears(selectedBusinessId);
     return years;
   }, [selectedBusinessId]);
-
-  // Calculation functions (placeholders - these will be implemented with actual logic)
-  const calculateEmployeeAppliedPercentage = useCallback((employee: Employee): number => {
-    // TODO: Implement actual calculation logic from main component
-    return 0;
-  }, []);
-
-  const calculateContractorAppliedPercentage = useCallback((contractor: Contractor): number => {
-    // TODO: Implement actual calculation logic from main component
-    return 0;
-  }, []);
-
-  const calculateSupplyAppliedPercentage = useCallback((supply: Supply): number => {
-    // TODO: Implement actual calculation logic from main component
-    return 0;
-  }, []);
-
-  const calculateRoleAppliedPercentages = useCallback(() => {
-    // TODO: Implement actual calculation logic from main component
-    return [];
-  }, []);
 
   // Modal handlers
   const handleOpenEmployeeModal = useCallback(() => setEmployeeModalOpen(true), []);
@@ -201,7 +201,7 @@ export const useExpensesState = (
 
   // CRUD operations
   const addEmployee = useCallback((employee: Employee) => {
-    ExpensesService.addEmployee(selectedBusinessId, selectedYear, employee);
+    ExpensesService.saveEmployee(selectedBusinessId, selectedYear, employee);
     loadEmployees();
   }, [selectedBusinessId, selectedYear, loadEmployees]);
 
@@ -216,12 +216,12 @@ export const useExpensesState = (
   }, [selectedBusinessId, selectedYear, loadEmployees]);
 
   const addContractor = useCallback((contractor: Contractor) => {
-    ExpensesService.addContractor(selectedBusinessId, selectedYear, contractor);
+    ExpensesService.saveContractor(selectedBusinessId, selectedYear, contractor);
     loadContractors();
   }, [selectedBusinessId, selectedYear, loadContractors]);
 
   const updateContractor = useCallback((contractor: Contractor) => {
-    ExpensesService.updateContractor(selectedBusinessId, selectedYear, contractor);
+    ExpensesService.saveContractor(selectedBusinessId, selectedYear, contractor);
     loadContractors();
   }, [selectedBusinessId, selectedYear, loadContractors]);
 
@@ -231,12 +231,12 @@ export const useExpensesState = (
   }, [selectedBusinessId, selectedYear, loadContractors]);
 
   const addSupply = useCallback((supply: Supply) => {
-    ExpensesService.addSupply(selectedBusinessId, selectedYear, supply);
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, supply);
     loadSupplies();
   }, [selectedBusinessId, selectedYear, loadSupplies]);
 
   const updateSupply = useCallback((supply: Supply) => {
-    ExpensesService.updateSupply(selectedBusinessId, selectedYear, supply);
+    ExpensesService.saveSupply(selectedBusinessId, selectedYear, supply);
     loadSupplies();
   }, [selectedBusinessId, selectedYear, loadSupplies]);
 
