@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { Supply } from '../../../types/Employee';
-import { formatCurrency } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrency } from '../../../utils/currencyFormatting';
 
 interface SupplyConfigureModalProps {
   open: boolean;

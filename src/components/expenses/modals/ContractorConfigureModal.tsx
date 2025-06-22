@@ -17,7 +17,7 @@ import { Contractor } from '../../../types/Employee';
 import { Role } from '../../../types/Business';
 import { getRoleName } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/roleHelpers';
 import { NON_RD_ROLE, OTHER_ROLE } from '../../../types/Employee';
-import { formatCurrency } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrency } from '../../../utils/currencyFormatting';
 
 interface ContractorConfigureModalProps {
   open: boolean;

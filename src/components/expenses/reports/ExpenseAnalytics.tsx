@@ -22,7 +22,7 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
-import { formatCurrency } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrency } from '../../../utils/currencyFormatting';
 
 interface ExpenseAnalyticsProps {
   employees: any[];
@@ -51,7 +51,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
     const totalAppliedWages = employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
     const totalContractorAmounts = contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0);
     const totalAppliedContractorAmounts = contractors.reduce((sum, cont) => sum + (cont.appliedAmount || 0), 0);
-    const totalSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.totalAmount || 0), 0);
+    const totalSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0);
     const totalAppliedSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.appliedAmount || 0), 0);
 
     const totalExpenses = totalWages + totalContractorAmounts + totalSupplyAmounts;
@@ -78,7 +78,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
     const prevMetrics = {
       totalWages: previousYearData.employees.reduce((sum, emp) => sum + (emp.wage || 0), 0),
       totalContractorAmounts: previousYearData.contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0),
-      totalSupplyAmounts: previousYearData.supplies.reduce((sum, sup) => sum + (sup.totalAmount || 0), 0),
+      totalSupplyAmounts: previousYearData.supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0),
       totalExpenses: 0
     };
     prevMetrics.totalExpenses = prevMetrics.totalWages + prevMetrics.totalContractorAmounts + prevMetrics.totalSupplyAmounts;
@@ -231,7 +231,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <LinearProgress
                     variant="determinate"
                     value={distributionMetrics.wages}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'primary.light' }}
+                    sx={{ height: 20, borderRadius: 1, bgcolor: 'blue.100' }}
                   />
                   <Box
                     sx={{
@@ -239,8 +239,8 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                       left: 0,
                       top: 0,
                       height: '100%',
-                      width: `${(currentMetrics.totalAppliedWages / currentMetrics.totalWages) * 100}%`,
-                      bgcolor: 'success.main',
+                      width: `${currentMetrics.totalWages > 0 ? (currentMetrics.totalAppliedWages / currentMetrics.totalWages) * 100 : 0}%`,
+                      bgcolor: 'blue.600',
                       borderRadius: '4px 0 0 4px',
                       opacity: 0.7
                     }}
@@ -250,7 +250,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <Typography variant="caption" color="text.secondary">
                     Total: {formatCurrency(currentMetrics.totalWages)}
                   </Typography>
-                  <Typography variant="caption" color="success.main">
+                  <Typography variant="caption" color="blue.600">
                     Applied: {formatCurrency(currentMetrics.totalAppliedWages)} (
                     {currentMetrics.totalWages > 0 ? ((currentMetrics.totalAppliedWages / currentMetrics.totalWages) * 100).toFixed(1) : 0}%)
                   </Typography>
@@ -267,7 +267,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <LinearProgress
                     variant="determinate"
                     value={distributionMetrics.contractors}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'primary.light' }}
+                    sx={{ height: 20, borderRadius: 1, bgcolor: 'green.100' }}
                   />
                   <Box
                     sx={{
@@ -275,8 +275,8 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                       left: 0,
                       top: 0,
                       height: '100%',
-                      width: `${(currentMetrics.totalAppliedContractorAmounts / currentMetrics.totalContractorAmounts) * 100}%`,
-                      bgcolor: 'success.main',
+                      width: `${currentMetrics.totalContractorAmounts > 0 ? (currentMetrics.totalAppliedContractorAmounts / currentMetrics.totalContractorAmounts) * 100 : 0}%`,
+                      bgcolor: 'green.600',
                       borderRadius: '4px 0 0 4px',
                       opacity: 0.7
                     }}
@@ -286,7 +286,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <Typography variant="caption" color="text.secondary">
                     Total: {formatCurrency(currentMetrics.totalContractorAmounts)}
                   </Typography>
-                  <Typography variant="caption" color="success.main">
+                  <Typography variant="caption" color="green.600">
                     Applied: {formatCurrency(currentMetrics.totalAppliedContractorAmounts)} (
                     {currentMetrics.totalContractorAmounts > 0 ? ((currentMetrics.totalAppliedContractorAmounts / currentMetrics.totalContractorAmounts) * 100).toFixed(1) : 0}%)
                   </Typography>
@@ -303,7 +303,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <LinearProgress
                     variant="determinate"
                     value={distributionMetrics.supplies}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'primary.light' }}
+                    sx={{ height: 20, borderRadius: 1, bgcolor: 'orange.100' }}
                   />
                   <Box
                     sx={{
@@ -311,8 +311,8 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                       left: 0,
                       top: 0,
                       height: '100%',
-                      width: `${(currentMetrics.totalAppliedSupplyAmounts / currentMetrics.totalSupplyAmounts) * 100}%`,
-                      bgcolor: 'success.main',
+                      width: `${currentMetrics.totalSupplyAmounts > 0 ? (currentMetrics.totalAppliedSupplyAmounts / currentMetrics.totalSupplyAmounts) * 100 : 0}%`,
+                      bgcolor: 'orange.600',
                       borderRadius: '4px 0 0 4px',
                       opacity: 0.7
                     }}
@@ -322,7 +322,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <Typography variant="caption" color="text.secondary">
                     Total: {formatCurrency(currentMetrics.totalSupplyAmounts)}
                   </Typography>
-                  <Typography variant="caption" color="success.main">
+                  <Typography variant="caption" color="orange.600">
                     Applied: {formatCurrency(currentMetrics.totalAppliedSupplyAmounts)} (
                     {currentMetrics.totalSupplyAmounts > 0 ? ((currentMetrics.totalAppliedSupplyAmounts / currentMetrics.totalSupplyAmounts) * 100).toFixed(1) : 0}%)
                   </Typography>
@@ -450,7 +450,7 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
                   <TableRow>
                     <TableCell>Supplies</TableCell>
                     <TableCell align="right">
-                      {formatCurrency(previousYearData!.supplies.reduce((sum, sup) => sum + (sup.totalAmount || 0), 0))}
+                      {formatCurrency(previousYearData!.supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0))}
                     </TableCell>
                     <TableCell align="right">{formatCurrency(currentMetrics.totalSupplyAmounts)}</TableCell>
                     <TableCell align="right">

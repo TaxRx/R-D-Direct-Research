@@ -8,7 +8,7 @@ import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, Supp
 import { ExpensesService } from '../services/expensesService';
 import { approvalsService } from '../services/approvals';
 import { SubcomponentSelectionData } from '../components/qra/SimpleQRAModal';
-import { formatCurrencyInput, parseCurrencyInput } from '../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrencyInput, parseCurrencyInput } from '../utils/currencyFormatting';
 import { flattenAllRoles, getRoleName } from '../pages/QRABuilderTabs/RDExpensesTab/utils/roleHelpers';
 import { 
   QRABuilderContextValue, 

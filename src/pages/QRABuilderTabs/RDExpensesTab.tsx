@@ -1,122 +1,50 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+
+// MUI Imports
 import {
-  Box,
-  Typography,
-  Card,
-  AppBar,
-  Toolbar,
-  Chip,
-  Alert,
-  Button,
-  Grid,
-  IconButton,
-  Tooltip,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  FormControlLabel,
-  Switch,
-  Tabs,
-  Tab,
-  InputAdornment,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Slider
+  Box, Typography, Card, AppBar, Toolbar, Chip, Alert, Button, Grid, IconButton,
+  Tooltip, TextField, FormControl, InputLabel, Select, MenuItem, FormControlLabel,
+  Switch, Tabs, Tab, InputAdornment, Dialog, DialogTitle, DialogContent, DialogActions, Slider
 } from '@mui/material';
 import {
-  CheckCircle as CheckCircleIcon,
-  Lock as LockIcon,
-  LockOpen as UnlockIcon,
-  Calculate as CalculateIcon,
-  InfoOutlined as InfoOutlinedIcon,
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  Settings as SettingsIcon,
-  Person as PersonIcon,
-  Business as BusinessIcon,
-  Close as CloseIcon,
-  FileDownload as FileDownloadIcon,
+  CheckCircle as CheckCircleIcon, Lock as LockIcon, LockOpen as UnlockIcon,
+  Calculate as CalculateIcon, InfoOutlined as InfoOutlinedIcon, Add as AddIcon,
+  Delete as DeleteIcon, Edit as EditIcon, Settings as SettingsIcon, Person as PersonIcon,
+  Business as BusinessIcon, Close as CloseIcon, FileDownload as FileDownloadIcon,
   Assessment as AssessmentIcon
 } from '@mui/icons-material';
+
+// Type Imports
 import { Business, RoleNode, Role } from '../../types/Business';
 import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, EMPTY_SUPPLY_FORM, NON_RD_ROLE, OTHER_ROLE, SUPPLY_CATEGORIES } from '../../types/Employee';
+
+// Service Imports
 import { ExpensesService } from '../../services/expensesService';
 import { CSVExportService } from '../../services/csvExportService';
 import { approvalsService } from '../../services/approvals';
+
+// Util Imports
+import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from '../../utils/currencyFormatting';
+import { flattenAllRoles, getRoleName, calculateRoleAppliedPercentages } from './RDExpensesTab/utils/roleHelpers';
+
+// Hook Imports
+import { CreditCalculatorInput, useFederalCreditCalculations } from '../../components/expenses/credit-calculator/useFederalCreditCalculations';
+
+// Component Imports
 import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
-import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from './RDExpensesTab/utils/currencyFormatting';
-import { flattenAllRoles, getRoleName } from './RDExpensesTab/utils/roleHelpers';
-import { ReportingDashboard } from '../../components/expenses/reports/ReportingDashboard';
-import { ExpenseSummary } from '../../components/expenses/shared/ExpenseSummary';
-import { ExpenseTabNavigation } from '../../components/expenses/tabs/ExpenseTabNavigation';
 import { EmployeeForm } from '../../components/expenses/forms/EmployeeForm';
 import { ContractorForm } from '../../components/expenses/forms/ContractorForm';
 import { SupplyForm } from '../../components/expenses/forms/SupplyForm';
-import { ExportButton } from '../../components/expenses/shared/ExportButton';
 import { EmployeeList } from '../../components/expenses/lists/EmployeeList';
 import { ContractorList } from '../../components/expenses/lists/ContractorList';
 import { SupplyList } from '../../components/expenses/lists/SupplyList';
 import { EmployeeConfigureModal } from '../../components/expenses/modals/EmployeeConfigureModal';
 import ContractorConfigureModal from '../../components/expenses/modals/ContractorConfigureModal';
 import SupplyConfigureModal from '../../components/expenses/modals/SupplyConfigureModal';
-
-// Calculate role applied percentages from activities
-const calculateRoleAppliedPercentages = (
-  roles: RoleNode[],
-  selectedBusinessId: string,
-  selectedYear: number
-): Role[] => {
-  // First, flatten the hierarchical role structure to get all roles including children
-  const allRoles = flattenAllRoles(roles);
-  
-  // Get QRA data for all activities
-  const getQRAData = (activityName: string) => {
-    try {
-      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
-      return qraData ? JSON.parse(qraData) : null;
-    } catch (error) {
-      console.error('Error loading QRA data:', error);
-      return null;
-    }
-  };
-
-  // Get business data to find activities and their role assignments
-  const STORAGE_KEY = 'businessInfoData';
-  const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
-  const activities = business?.years?.[selectedYear]?.activities || {};
-
-  // Calculate applied percentage for each role
-  return allRoles.map(role => {
-    let totalAppliedPercentage = 0;
-    let activityCount = 0;
-
-    // Find all activities that this role participates in
-    Object.values(activities).forEach((activity: any) => {
-      if (activity.selectedRoles && activity.selectedRoles.includes(role.id)) {
-        // Get the applied percentage from QRA data for this activity
-        const qraData = getQRAData(activity.name);
-        if (qraData && qraData.totalAppliedPercent) {
-          totalAppliedPercentage += qraData.totalAppliedPercent;
-          activityCount++;
-        }
-      }
-    });
-
-    // Average the applied percentages across all activities this role participates in
-    const appliedPercentage = activityCount > 0 ? totalAppliedPercentage / activityCount : 0;
-
-    return {
-      ...role,
-      appliedPercentage: Math.round(appliedPercentage * 100) / 100 // Round to 2 decimal places
-    };
-  });
-};
+import { ExportButton } from '../../components/expenses/shared/ExportButton';
+import { ExpenseTabNavigation } from '../../components/expenses/tabs/ExpenseTabNavigation';
+import { ReportingDashboard } from '../../components/expenses/reports/ReportingDashboard';
+import { ExpenseSummary } from '../../components/expenses/shared/ExpenseSummary';
 
 interface RDExpensesTabProps {
   selectedYear: number;
@@ -1250,6 +1178,50 @@ export default function RDExpensesTab({
   const yearTotals = ExpensesService.calculateYearTotals(selectedBusinessId, selectedYear);
   const availableRoles = ExpensesService.getAvailableRoles(roles); // Now using roles with applied percentages
 
+  const currentYearQREs = useMemo(() => {
+    const employeeQREs = employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
+    const contractorQREs = contractors.reduce((sum, cont) => sum + (cont.appliedAmount || 0), 0);
+    const supplyQREs = supplies.reduce((sum, sup) => sum + (sup.appliedAmount || 0), 0);
+    return employeeQREs + contractorQREs + supplyQREs;
+  }, [employees, contractors, supplies]);
+
+  const creditCalculatorInput = useMemo((): CreditCalculatorInput => {
+    const businessData = businesses.find(b => b.id === selectedBusinessId);
+    if (!businessData) {
+      // Return a default/empty state if business data is not found
+      return {
+        currentYearQREs: 0,
+        priorYearQREs: [],
+        priorYearGrossReceipts: [],
+        businessType: 'C-Corp', // Default value
+      };
+    }
+
+    const entityType = businessData.entityType?.toLowerCase().includes('c-corp') ? 'C-Corp' : 'Pass-Through';
+    
+    const financialHistory = businessData.financialHistory || [];
+    const sortedHistory = [...financialHistory].sort((a, b) => b.year - a.year);
+
+    const getPriorYearsData = (numberOfYears: number, dataKey: 'qre' | 'grossReceipts') => {
+      const result: number[] = [];
+      for (let i = 1; i <= numberOfYears; i++) {
+        const yearData = sortedHistory.find(h => h.year === selectedYear - i);
+        result.push(yearData?.[dataKey] || 0);
+      }
+      return result;
+    };
+
+    return {
+      currentYearQREs,
+      priorYearQREs: getPriorYearsData(4, 'qre'), // Get 4 years for standard method availability check
+      priorYearGrossReceipts: getPriorYearsData(4, 'grossReceipts'),
+      businessType: entityType,
+    };
+  }, [selectedBusinessId, businesses, selectedYear, currentYearQREs]);
+
+  // Calculate federal credit for summary display
+  const { finalCredit: federalCredit } = useFederalCreditCalculations(creditCalculatorInput);
+
   if (!isActivitiesApproved) {
     return (
       <Box sx={{ p: 3 }}>
@@ -1337,6 +1309,7 @@ export default function RDExpensesTab({
         contractors={contractors}
         supplies={supplies}
         selectedYear={selectedYear}
+        federalCredit={federalCredit}
       />
 
       {/* Expense Category Tabs */}
@@ -1440,6 +1413,8 @@ export default function RDExpensesTab({
             supplies={supplies}
             selectedYear={selectedYear}
             isExpensesApproved={isExpensesApproved}
+            creditCalculatorInput={creditCalculatorInput}
+            onExportReport={(type) => console.log(`Exporting ${type} report...`)}
           />
         </Box>
       )}

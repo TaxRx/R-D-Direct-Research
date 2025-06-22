@@ -7,20 +7,22 @@ import {
   Grid,
   Chip
 } from '@mui/material';
-import { formatCurrency } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrency } from '../../../utils/currencyFormatting';
 
 interface ExpenseSummaryProps {
   employees: any[];
   contractors: any[];
   supplies: any[];
   selectedYear: number;
+  federalCredit?: number;
 }
 
 export const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({
   employees,
   contractors,
   supplies,
-  selectedYear
+  selectedYear,
+  federalCredit = 0
 }) => {
   // Calculate totals
   const totalWages = employees.reduce((sum, emp) => sum + (emp.wage || 0), 0);
@@ -142,7 +144,7 @@ export const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({
       {/* Total Summary */}
       <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid #e0e0e0' }}>
         <Grid container spacing={2}>
-          <Grid item xs={6}>
+          <Grid item xs={4}>
             <Typography variant="body2" color="text.secondary">
               Total Expenses
             </Typography>
@@ -150,13 +152,25 @@ export const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({
               {formatCurrency(totalExpenses)}
             </Typography>
           </Grid>
-          <Grid item xs={6}>
-            <Typography variant="body2" color="text.secondary">
-              Total Applied
-            </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 600, color: getProgressColor(overallPercentage) }}>
-              {formatCurrency(totalAppliedExpenses)}
-            </Typography>
+          <Grid item xs={4}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Total Applied
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: getProgressColor(overallPercentage) }}>
+                {formatCurrency(totalAppliedExpenses)}
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={4}>
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="body2" color="text.secondary">
+                Federal Credit
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#81c784' }}>
+                {formatCurrency(federalCredit)}
+              </Typography>
+            </Box>
           </Grid>
         </Grid>
       </Box>

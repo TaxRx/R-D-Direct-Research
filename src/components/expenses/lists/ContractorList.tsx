@@ -18,7 +18,7 @@ import {
 } from '@mui/icons-material';
 import { Contractor } from '../../../types/Employee';
 import { Role } from '../../../types/Business';
-import { formatCurrency } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/currencyFormatting';
+import { formatCurrency } from '../../../utils/currencyFormatting';
 import { NON_RD_ROLE, OTHER_ROLE } from '../../../types/Employee';
 
 interface ContractorListProps {

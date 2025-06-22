@@ -1,4 +1,4 @@
-import { RoleNode, Role } from '../../../../types/Business';
+import { RoleNode, Role, Business } from '../../../../types/Business';
 
 /**
  * Role utility functions for expense management
@@ -47,4 +47,57 @@ export const getRoleName = (
   if (roleId === 'other') return customRoleName || 'Other';
   
   return 'Unknown Role';
+};
+
+// Calculate role applied percentages from activities
+export const calculateRoleAppliedPercentages = (
+  roles: RoleNode[],
+  selectedBusinessId: string,
+  selectedYear: number
+): Role[] => {
+  // First, flatten the hierarchical role structure to get all roles including children
+  const allRoles = flattenAllRoles(roles);
+  
+  // Get QRA data for all activities
+  const getQRAData = (activityName: string) => {
+    try {
+      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
+      return qraData ? JSON.parse(qraData) : null;
+    } catch (error) {
+      console.error('Error loading QRA data:', error);
+      return null;
+    }
+  };
+
+  // Get business data to find activities and their role assignments
+  const STORAGE_KEY = 'businessInfoData';
+  const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+  const activities = business?.years?.[selectedYear]?.activities || {};
+
+  // Calculate applied percentage for each role
+  return allRoles.map(role => {
+    let totalAppliedPercentage = 0;
+    let activityCount = 0;
+
+    // Find all activities that this role participates in
+    Object.values(activities).forEach((activity: any) => {
+      if (activity.selectedRoles && activity.selectedRoles.includes(role.id)) {
+        // Get the applied percentage from QRA data for this activity
+        const qraData = getQRAData(activity.name);
+        if (qraData && qraData.totalAppliedPercent) {
+          totalAppliedPercentage += qraData.totalAppliedPercent;
+          activityCount++;
+        }
+      }
+    });
+
+    // Average the applied percentages across all activities this role participates in
+    const appliedPercentage = activityCount > 0 ? totalAppliedPercentage / activityCount : 0;
+
+    return {
+      ...role,
+      appliedPercentage: Math.round(appliedPercentage * 100) / 100 // Round to 2 decimal places
+    };
+  });
 }; 

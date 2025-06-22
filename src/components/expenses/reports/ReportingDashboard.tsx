@@ -19,6 +19,8 @@ import {
 } from '@mui/icons-material';
 import { ExpenseAnalytics } from './ExpenseAnalytics';
 import { ComplianceReport } from './ComplianceReport';
+import { FederalCreditCard } from '../credit-calculator/FederalCreditCard';
+import { CreditCalculatorInput } from '../credit-calculator/useFederalCreditCalculations';
 
 interface ReportingDashboardProps {
   employees: any[];
@@ -32,6 +34,7 @@ interface ReportingDashboardProps {
     supplies: any[];
   };
   isExpensesApproved: boolean;
+  creditCalculatorInput: CreditCalculatorInput;
   onExportReport?: (type: 'analytics' | 'compliance' | 'full') => void;
 }
 
@@ -65,6 +68,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({
   previousYear,
   previousYearData,
   isExpensesApproved,
+  creditCalculatorInput,
   onExportReport
 }) => {
   const [activeTab, setActiveTab] = useState(0);
@@ -150,62 +154,21 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({
         </Button>
       </Box>
 
-      {/* Summary Cards */}
+      {/* Credit Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Total Expenses
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              ${(employees.reduce((sum, emp) => sum + (emp.wage || 0), 0) +
-                contractors.reduce((sum, cont) => sum + (cont.amount || 0), 0) +
-                supplies.reduce((sum, sup) => sum + (sup.amount || 0), 0)).toLocaleString()}
-            </Typography>
-          </Card>
+        <Grid item xs={12} md={6}>
+          <FederalCreditCard input={creditCalculatorInput} />
         </Grid>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Total Items
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {employees.length + contractors.length + supplies.length}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {employees.length} employees, {contractors.length} contractors, {supplies.length} supplies
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Approval Status
-            </Typography>
-            <Chip
-              label={isExpensesApproved ? 'APPROVED' : 'PENDING'}
-              color={isExpensesApproved ? 'success' : 'warning'}
-              size="medium"
-              sx={{ mb: 1 }}
-            />
-            <Typography variant="body2" color="text.secondary">
-              {isExpensesApproved ? 'Ready for submission' : 'Pending approval'}
-            </Typography>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Year
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {selectedYear}
-            </Typography>
-            {previousYear && (
-              <Typography variant="body2" color="text.secondary">
-                Previous: {previousYear}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%', p: 2, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                State R&D Credit
               </Typography>
-            )}
+              <Typography variant="h4" color="text.secondary">
+                Coming Soon
+              </Typography>
+            </Box>
           </Card>
         </Grid>
       </Grid>
