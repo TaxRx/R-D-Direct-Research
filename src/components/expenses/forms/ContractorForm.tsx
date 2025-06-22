@@ -16,7 +16,7 @@ import {
 import {
   Add as AddIcon
 } from '@mui/icons-material';
-import { ContractorFormData, OTHER_ROLE } from '../../../types/Employee';
+import { ContractorFormData, OTHER_ROLE, NON_RD_ROLE } from '../../../types/Employee';
 import { Role } from '../../../types/Business';
 
 interface ContractorFormProps {
@@ -24,7 +24,7 @@ interface ContractorFormProps {
   onFormChange: (field: keyof ContractorFormData, value: string) => void;
   onAddContractor: () => void;
   formError: string;
-  availableRoles: Role[];
+  availableRoles: Array<Role | typeof NON_RD_ROLE | typeof OTHER_ROLE>;
   disabled?: boolean;
 }
 

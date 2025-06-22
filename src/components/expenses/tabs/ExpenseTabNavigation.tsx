@@ -9,7 +9,8 @@ import {
 import {
   Person as PersonIcon,
   Business as BusinessIcon,
-  Inventory as InventoryIcon
+  Inventory as InventoryIcon,
+  Assessment as AssessmentIcon
 } from '@mui/icons-material';
 
 interface ExpenseTabNavigationProps {
@@ -76,6 +77,11 @@ export const ExpenseTabNavigation: React.FC<ExpenseTabNavigationProps> = ({
           label={getTabLabel('Supplies', supplies.length, <InventoryIcon />)}
           id="expense-tab-2"
           aria-controls="expense-tabpanel-2"
+        />
+        <Tab
+          label={getTabLabel('Reports', 0, <AssessmentIcon />)}
+          id="expense-tab-3"
+          aria-controls="expense-tabpanel-3"
         />
       </Tabs>
       

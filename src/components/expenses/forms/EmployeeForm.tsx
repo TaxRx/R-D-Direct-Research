@@ -30,7 +30,7 @@ interface EmployeeFormProps {
   onAddEmployee: () => void;
   onKeyPress: (event: React.KeyboardEvent, nextRef?: React.RefObject<HTMLInputElement>) => void;
   formError: string;
-  availableRoles: Role[];
+  availableRoles: Array<Role | typeof NON_RD_ROLE | typeof OTHER_ROLE>;
   disabled?: boolean;
 }
 

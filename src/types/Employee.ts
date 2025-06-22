@@ -64,6 +64,7 @@ export interface Supply {
   // Custom supply-specific configuration for activity/subcomponent allocation
   customActivityPercentages?: Record<string, number>; // Activity name -> percentage
   customSubcomponentPercentages?: Record<string, Record<string, number>>; // Activity name -> subcomponent ID -> percentage
+  selectedSubcomponents?: Record<string, string[]>; // Activity name -> array of selected subcomponent IDs
 }
 
 export interface ExpenseData {
