@@ -1,41 +1,49 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   Box,
   Card,
+  CardContent,
   Typography,
   Grid,
+  Chip,
+  Alert,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
-  Chip,
-  Alert,
   Divider,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
-  Error as ErrorIcon,
   Info as InfoIcon,
+  ExpandMore as ExpandMoreIcon,
   Assignment as AssignmentIcon,
-  Person as PersonIcon,
+  Schedule as ScheduleIcon,
   Business as BusinessIcon,
-  Inventory as InventoryIcon
+  Person as PersonIcon,
+  Calculate as CalculateIcon
 } from '@mui/icons-material';
+import { Employee, Contractor, Supply } from '../../../types/Employee';
+import { useFederalCreditCalculations, CreditCalculatorInput } from '../credit-calculator/useFederalCreditCalculations';
+import { useStateCreditCalculations } from '../../../hooks/expenses/useStateCreditCalculations';
+import { StateCreditInput } from '../../../types/StateCredit';
+import { Business } from '../../../types/Business';
 
 interface ComplianceReportProps {
-  employees: any[];
-  contractors: any[];
-  supplies: any[];
+  employees: Employee[];
+  contractors: Contractor[];
+  supplies: Supply[];
   selectedYear: number;
-  isExpensesApproved: boolean;
+  selectedBusinessId: string;
+  businessType: 'C-Corp' | 'Pass-Through';
+  stateCode?: string;
+  employeeCount?: number;
+  grossReceipts?: number;
+  businesses: Business[];
 }
 
 export const ComplianceReport: React.FC<ComplianceReportProps> = ({
@@ -43,594 +51,778 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({
   contractors,
   supplies,
   selectedYear,
-  isExpensesApproved
+  selectedBusinessId,
+  businessType,
+  stateCode,
+  employeeCount,
+  grossReceipts,
+  businesses
 }) => {
-  // Calculate compliance metrics
-  const complianceData = useMemo(() => {
-    // Employee compliance checks
-    const employeeIssues: string[] = [];
-    const employeeWarnings: string[] = [];
-    const employeePasses: string[] = [];
+  // Calculate total QREs
+  const totalQREs = React.useMemo(() => {
+    const employeeQREs = employees
+      .filter(emp => emp.isActive)
+      .reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
+    
+    const contractorQREs = contractors
+      .filter(con => con.isActive)
+      .reduce((sum, con) => sum + (con.appliedAmount || 0), 0);
+    
+    const supplyQREs = supplies
+      .filter(sup => sup.isActive)
+      .reduce((sum, sup) => sum + (sup.appliedAmount || 0), 0);
+    
+    return Math.round(employeeQREs + contractorQREs + supplyQREs);
+  }, [employees, contractors, supplies]);
 
-    employees.forEach((emp, index) => {
-      const empName = emp.firstName && emp.lastName ? `${emp.firstName} ${emp.lastName}` : `Employee ${index + 1}`;
-      if (!emp.firstName || !emp.lastName) {
-        employeeIssues.push(`Employee ${index + 1}: Missing first or last name`);
-      } else if (!emp.roleId || emp.roleId === 'NON_RD_ROLE') {
-        employeeWarnings.push(`${empName}: Non-R&D role assigned`);
-      } else if ((emp.appliedPercentage || 0) === 0) {
-        employeeWarnings.push(`${empName}: No applied percentage set`);
-      } else if ((emp.appliedPercentage || 0) > 100) {
-        employeeIssues.push(`${empName}: Applied percentage exceeds 100% (${emp.appliedPercentage}%)`);
-      } else if ((emp.appliedPercentage || 0) > 45) {
-        employeeWarnings.push(`${empName}: Applied percentage is high (${emp.appliedPercentage}%)`);
-      } else {
-        employeePasses.push(`${empName}: Compliant`);
+  // Get business financial history for real data
+  const businessData = React.useMemo(() => {
+    return businesses.find(b => b.id === selectedBusinessId);
+  }, [businesses, selectedBusinessId]);
+
+  // Federal credit calculations with real data
+  const creditCalculatorInput: CreditCalculatorInput = React.useMemo(() => {
+    const financialHistory = businessData?.financialHistory || [];
+    const sortedHistory = [...financialHistory].sort((a, b) => b.year - a.year);
+
+    const getPriorYearsData = (numberOfYears: number, dataKey: 'qre' | 'grossReceipts') => {
+      const result: number[] = [];
+      for (let i = 1; i <= numberOfYears; i++) {
+        const yearData = sortedHistory.find(h => h.year === selectedYear - i);
+        result.push(yearData?.[dataKey] || 0);
       }
-    });
-
-    // Contractor compliance checks
-    const contractorIssues: string[] = [];
-    const contractorWarnings: string[] = [];
-    const contractorPasses: string[] = [];
-
-    contractors.forEach((cont, index) => {
-      const contName = cont.contractorType === 'individual'
-        ? (cont.firstName && cont.lastName ? `${cont.firstName} ${cont.lastName}` : `Contractor ${index + 1}`)
-        : (cont.businessName || `Contractor ${index + 1}`);
-
-      const hasName = cont.contractorType === 'individual' ? (cont.firstName && cont.lastName) : cont.businessName;
-
-      if (!hasName) {
-        contractorIssues.push(`Contractor ${index + 1}: Missing name`);
-      } else if (!cont.roleId || cont.roleId === 'NON_RD_ROLE') {
-        contractorWarnings.push(`${contName}: Non-R&D role assigned`);
-      } else if ((cont.appliedPercentage || 0) === 0) {
-        contractorWarnings.push(`${contName}: No applied percentage set`);
-      } else if ((cont.appliedPercentage || 0) > 100) {
-        contractorIssues.push(`${contName}: Applied percentage exceeds 100% (${cont.appliedPercentage}%)`);
-      } else if ((cont.appliedPercentage || 0) > 45) {
-        contractorWarnings.push(`${contName}: Applied percentage is high (${cont.appliedPercentage}%)`);
-      } else {
-        contractorPasses.push(`${contName}: Compliant`);
-      }
-    });
-
-    // Supply compliance checks
-    const supplyIssues: string[] = [];
-    const supplyWarnings: string[] = [];
-    const supplyPasses: string[] = [];
-
-    // Calculate total wages and contractor amounts for supply ratio check
-    const totalWages = employees.reduce((sum, emp) => sum + (emp.wage || 0), 0);
-    const totalContractorAmounts = contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0);
-    const totalSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.totalAmount || 0), 0);
-
-    if (totalWages + totalContractorAmounts > 0) {
-      const supplyRatio = totalSupplyAmounts / (totalWages + totalContractorAmounts);
-      if (supplyRatio > 0.35) {
-        supplyWarnings.push(`High supply to labor cost ratio (${(supplyRatio * 100).toFixed(1)}%). Review for necessity.`);
-      }
-    }
-
-    supplies.forEach((sup, index) => {
-      const supName = sup.title || `Supply ${index + 1}`;
-      if (!sup.title || sup.title.trim() === '') {
-        supplyIssues.push(`Supply ${index + 1}: Missing title`);
-      } else if (!sup.category) {
-        supplyWarnings.push(`${supName}: No category assigned`);
-      } else if ((sup.appliedPercentage || 0) === 0) {
-        supplyWarnings.push(`${supName}: No applied percentage set`);
-      } else if ((sup.appliedPercentage || 0) > 100) {
-        supplyIssues.push(`${supName}: Applied percentage exceeds 100% (${sup.appliedPercentage}%)`);
-      } else {
-        supplyPasses.push(`${supName}: Compliant`);
-      }
-    });
-
-    // Overall compliance calculation
-    const totalItems = employees.length + contractors.length + supplies.length;
-    const totalIssues = employeeIssues.length + contractorIssues.length + supplyIssues.length;
-    const totalWarnings = employeeWarnings.length + contractorWarnings.length + supplyWarnings.length;
-    const totalPasses = employeePasses.length + contractorPasses.length + supplyPasses.length;
-
-    const complianceScore = totalItems > 0 ? ((totalPasses - totalIssues) / totalItems) * 100 : 100;
-    const riskLevel = totalIssues > 0 ? 'HIGH' : totalWarnings > 0 ? 'MEDIUM' : 'LOW';
+      return result;
+    };
 
     return {
-      employeeIssues,
-      employeeWarnings,
-      employeePasses,
-      contractorIssues,
-      contractorWarnings,
-      contractorPasses,
-      supplyIssues,
-      supplyWarnings,
-      supplyPasses,
-      totalItems,
-      totalIssues,
-      totalWarnings,
-      totalPasses,
-      complianceScore,
-      riskLevel
+      currentYearQREs: totalQREs,
+      priorYearQREs: getPriorYearsData(4, 'qre'),
+      priorYearGrossReceipts: getPriorYearsData(4, 'grossReceipts'),
+      businessType,
+    };
+  }, [businessData, selectedYear, totalQREs, businessType]);
+
+  const {
+    method,
+    setMethod,
+    apply280c,
+    setApply280c,
+    isStandardMethodAvailable,
+    grossCredit,
+    finalCredit,
+    federalTaxRate
+  } = useFederalCreditCalculations(creditCalculatorInput);
+
+  // State credit calculations
+  const stateCreditInput: StateCreditInput = React.useMemo(() => {
+    const financialHistory = businessData?.financialHistory || [];
+    const sortedHistory = [...financialHistory].sort((a, b) => b.year - a.year);
+
+    const getPriorYearsData = (numberOfYears: number, dataKey: 'qre' | 'grossReceipts') => {
+      const result: number[] = [];
+      for (let i = 1; i <= numberOfYears; i++) {
+        const yearData = sortedHistory.find(h => h.year === selectedYear - i);
+        result.push(yearData?.[dataKey] || 0);
+      }
+      return result;
+    };
+
+    return {
+      stateQREs: totalQREs,
+      priorYearQREs: getPriorYearsData(4, 'qre'),
+      federalCredit: Math.round(finalCredit),
+      stateCode: stateCode || 'CA',
+      year: selectedYear,
+      calculationYear: selectedYear,
+      businessType: businessType === 'C-Corp' ? 'C-Corp' : 'LLC',
+      employeeCount,
+      grossReceipts
+    };
+  }, [businessData, selectedYear, totalQREs, finalCredit, stateCode, businessType, employeeCount, grossReceipts]);
+
+  const {
+    result: stateCreditResult,
+    eligibility: stateEligibility,
+    config: stateConfig
+  } = useStateCreditCalculations(stateCreditInput);
+
+  // Calculate compliance metrics
+  const complianceMetrics = React.useMemo(() => {
+    const activeEmployees = employees.filter(emp => emp.isActive).length;
+    const employeesWithAppliedPercentage = employees.filter(emp => emp.isActive && emp.appliedPercentage > 0).length;
+    
+    const activeContractors = contractors.filter(con => con.isActive).length;
+    const contractorsWithAppliedPercentage = contractors.filter(con => con.isActive && con.appliedPercentage > 0).length;
+    
+    const activeSupplies = supplies.filter(sup => sup.isActive).length;
+    const suppliesWithAppliedPercentage = supplies.filter(sup => sup.isActive && sup.appliedPercentage > 0).length;
+
+    return {
+      activeEmployees,
+      employeesWithAppliedPercentage,
+      activeContractors,
+      contractorsWithAppliedPercentage,
+      activeSupplies,
+      suppliesWithAppliedPercentage,
+      totalQREs
     };
   }, [employees, contractors, supplies]);
 
-  // Calculate 65% rule compliance for contractors
-  const contractor65RuleCompliance = useMemo(() => {
-    const contractorsWithActivities = contractors.filter(cont => cont.activities && cont.activities.length > 0);
-    const compliantContractors = contractorsWithActivities.filter(cont => {
-      const totalPractice = cont.activities.reduce((sum: number, activity: any) => {
-        return sum + (activity.currentPracticePercent || 0);
-      }, 0);
-      return totalPractice <= 100;
-    });
+  // Compliance checklist
+  const complianceChecklist = React.useMemo(() => [
+    {
+      id: 1,
+      title: 'Business Information Complete',
+      description: 'All required business information has been entered and approved.',
+      status: businessData?.tabApprovals?.basicInfo?.isApproved ? 'completed' : 'warning',
+      details: businessData?.tabApprovals?.basicInfo?.isApproved ? 'Approved' : 'Pending approval'
+    },
+    {
+      id: 2,
+      title: 'Ownership Details Complete',
+      description: 'All ownership information has been entered and approved.',
+      status: businessData?.tabApprovals?.ownership?.isApproved ? 'completed' : 'warning',
+      details: businessData?.tabApprovals?.ownership?.isApproved ? 'Approved' : 'Pending approval'
+    },
+    {
+      id: 3,
+      title: 'Financial History Complete',
+      description: 'Financial history data has been entered and approved.',
+      status: businessData?.tabApprovals?.financial?.isApproved ? 'completed' : 'warning',
+      details: businessData?.tabApprovals?.financial?.isApproved ? 'Approved' : 'Pending approval'
+    },
+    {
+      id: 4,
+      title: 'Employees Allocated',
+      description: 'Employee expenses have been allocated to research activities.',
+      status: complianceMetrics.employeesWithAppliedPercentage > 0 ? 'completed' : 'error',
+      details: `${complianceMetrics.employeesWithAppliedPercentage}/${complianceMetrics.activeEmployees} employees allocated`
+    },
+    {
+      id: 5,
+      title: 'Contractors Allocated',
+      description: 'Contractor expenses have been allocated to research activities.',
+      status: complianceMetrics.contractorsWithAppliedPercentage > 0 ? 'completed' : 'error',
+      details: `${complianceMetrics.contractorsWithAppliedPercentage}/${complianceMetrics.activeContractors} contractors allocated`
+    },
+    {
+      id: 6,
+      title: 'Supplies Allocated',
+      description: 'Supply expenses have been allocated to research activities.',
+      status: complianceMetrics.suppliesWithAppliedPercentage > 0 ? 'completed' : 'error',
+      details: `${complianceMetrics.suppliesWithAppliedPercentage}/${complianceMetrics.activeSupplies} supplies allocated`
+    },
+    {
+      id: 7,
+      title: 'Total QREs Calculated',
+      description: 'Total qualified research expenses have been calculated.',
+      status: complianceMetrics.totalQREs > 0 ? 'completed' : 'error',
+      details: `$${complianceMetrics.totalQREs.toLocaleString()} in QREs`
+    }
+  ], [businessData, complianceMetrics]);
 
-    return {
-      total: contractorsWithActivities.length,
-      compliant: compliantContractors.length,
-      percentage: contractorsWithActivities.length > 0 ? (compliantContractors.length / contractorsWithActivities.length) * 100 : 100
-    };
-  }, [contractors]);
-
-  const getRiskLevelColor = (level: string) => {
-    switch (level) {
-      case 'HIGH': return 'error';
-      case 'MEDIUM': return 'warning';
-      case 'LOW': return 'success';
-      default: return 'default';
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircleIcon color="success" />;
+      case 'warning':
+        return <WarningIcon color="warning" />;
+      case 'error':
+        return <WarningIcon color="error" />;
+      default:
+        return <InfoIcon color="info" />;
     }
   };
 
-  const getComplianceIcon = (score: number) => {
-    if (score >= 90) return <CheckCircleIcon color="success" />;
-    if (score >= 70) return <WarningIcon color="warning" />;
-    return <ErrorIcon color="error" />;
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'success';
+      case 'warning':
+        return 'warning';
+      case 'error':
+        return 'error';
+      default:
+        return 'info';
+    }
   };
+
+  // Get calculation details for formulas
+  const getFederalCalculationDetails = () => {
+    const { currentYearQREs, priorYearQREs, priorYearGrossReceipts } = creditCalculatorInput;
+    
+    if (method === 'asc') {
+      const validPriorYearQREs = priorYearQREs.slice(0, 3).filter(qre => qre > 0);
+      if (validPriorYearQREs.length === 3) {
+        const ascBase = validPriorYearQREs.reduce((sum, qre) => sum + qre, 0) / 3;
+        const halfBase = 0.5 * ascBase;
+        const incrementalQREs = currentYearQREs - halfBase;
+        return {
+          method: 'ASC',
+          basePeriodAverage: ascBase,
+          halfBase,
+          incrementalQREs,
+          rate: 0.14,
+          grossCredit,
+        };
+      } else {
+        return {
+          method: 'ASC (No Base Period)',
+          currentYearQREs,
+          rate: 0.06,
+          grossCredit,
+        };
+      }
+    } else {
+      const avgGrossReceipts = priorYearGrossReceipts.reduce((sum, r) => sum + r, 0) / 4;
+      let baseAmount = 0.03 * avgGrossReceipts;
+      if (baseAmount < 0.5 * currentYearQREs) {
+        baseAmount = 0.5 * currentYearQREs;
+      }
+      const incrementalQREs = currentYearQREs - baseAmount;
+      return {
+        method: 'Standard',
+        avgGrossReceipts,
+        baseAmount,
+        incrementalQREs,
+        rate: 0.20,
+        grossCredit,
+      };
+    }
+  };
+
+  const federalDetails = getFederalCalculationDetails();
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <AssignmentIcon color="primary" />
-        R&D Tax Credit Compliance Report - {selectedYear}
+      <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
+        <AssignmentIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+        Compliance Report
       </Typography>
 
-      {/* Overall Compliance Summary */}
-      <Card sx={{ mb: 4 }}>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Overall Compliance Summary
-          </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                  {getComplianceIcon(complianceData.complianceScore)}
-                </Box>
-                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                  {complianceData.complianceScore.toFixed(1)}%
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Compliance Score
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Chip
-                  label={complianceData.riskLevel}
-                  color={getRiskLevelColor(complianceData.riskLevel) as any}
-                  size="medium"
-                  sx={{ mb: 1 }}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  Risk Level
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                  {complianceData.totalItems}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Total Items
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                  {complianceData.totalIssues}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Critical Issues
-                </Typography>
-              </Box>
-            </Grid>
-          </Grid>
-        </Box>
-      </Card>
-
-      {/* Critical Issues Alert */}
-      {complianceData.totalIssues > 0 && (
-        <Alert severity="error" sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>
-            Critical Compliance Issues Found
-          </Typography>
-          <Typography variant="body2">
-            {complianceData.totalIssues} critical issue(s) must be resolved before submission. 
-            These issues may prevent your R&D tax credit claim from being accepted.
-          </Typography>
-        </Alert>
-      )}
-
-      {/* Warnings Alert */}
-      {complianceData.totalWarnings > 0 && (
-        <Alert severity="warning" sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>
-            Compliance Warnings
-          </Typography>
-          <Typography variant="body2">
-            {complianceData.totalWarnings} warning(s) identified. While these won't prevent submission, 
-            addressing them will improve your claim quality and reduce audit risk.
-          </Typography>
-        </Alert>
-      )}
-
-      {/* Detailed Compliance Breakdown */}
-      <Grid container spacing={3}>
-        {/* Employee Compliance */}
-        <Grid item xs={12} md={4}>
+      {/* Summary Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} md={3}>
           <Card>
-            <Box sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <PersonIcon color="primary" />
-                Employee Compliance
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  {employees.length} employees • {complianceData.employeePasses.length} compliant
-                </Typography>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <PersonIcon color="primary" sx={{ mr: 1 }} />
+                <Typography variant="h6">Employees</Typography>
               </Box>
-              
-              {complianceData.employeeIssues.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="error" gutterBottom>
-                    Critical Issues ({complianceData.employeeIssues.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.employeeIssues.slice(0, 3).map((issue, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <ErrorIcon color="error" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={issue} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.employeeIssues.length > 3 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.employeeIssues.length - 3} more issues`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
-
-              {complianceData.employeeWarnings.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="warning.main" gutterBottom>
-                    Warnings ({complianceData.employeeWarnings.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.employeeWarnings.slice(0, 2).map((warning, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <WarningIcon color="warning" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={warning} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.employeeWarnings.length > 2 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.employeeWarnings.length - 2} more warnings`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
-            </Box>
+              <Typography variant="h4" color="primary">
+                {complianceMetrics.activeEmployees}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {complianceMetrics.employeesWithAppliedPercentage} allocated
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
 
-        {/* Contractor Compliance */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={3}>
           <Card>
-            <Box sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <BusinessIcon color="primary" />
-                Contractor Compliance
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  {contractors.length} contractors • {complianceData.contractorPasses.length} compliant
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  65% Rule: {contractor65RuleCompliance.compliant}/{contractor65RuleCompliance.total} compliant
-                </Typography>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <BusinessIcon color="secondary" sx={{ mr: 1 }} />
+                <Typography variant="h6">Contractors</Typography>
               </Box>
-              
-              {complianceData.contractorIssues.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="error" gutterBottom>
-                    Critical Issues ({complianceData.contractorIssues.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.contractorIssues.slice(0, 3).map((issue, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <ErrorIcon color="error" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={issue} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.contractorIssues.length > 3 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.contractorIssues.length - 3} more issues`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
-
-              {complianceData.contractorWarnings.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="warning.main" gutterBottom>
-                    Warnings ({complianceData.contractorWarnings.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.contractorWarnings.slice(0, 2).map((warning, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <WarningIcon color="warning" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={warning} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.contractorWarnings.length > 2 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.contractorWarnings.length - 2} more warnings`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
-            </Box>
+              <Typography variant="h4" color="secondary.main">
+                {complianceMetrics.activeContractors}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {complianceMetrics.contractorsWithAppliedPercentage} allocated
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
 
-        {/* Supply Compliance */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={3}>
           <Card>
-            <Box sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <InventoryIcon color="primary" />
-                Supply Compliance
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  {supplies.length} supplies • {complianceData.supplyPasses.length} compliant
-                </Typography>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <InfoIcon color="info" sx={{ mr: 1 }} />
+                <Typography variant="h6">Supplies</Typography>
               </Box>
-              
-              {complianceData.supplyIssues.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="error" gutterBottom>
-                    Critical Issues ({complianceData.supplyIssues.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.supplyIssues.slice(0, 3).map((issue, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <ErrorIcon color="error" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={issue} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.supplyIssues.length > 3 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.supplyIssues.length - 3} more issues`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
+              <Typography variant="h4" color="info.main">
+                {complianceMetrics.activeSupplies}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {complianceMetrics.suppliesWithAppliedPercentage} allocated
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
 
-              {complianceData.supplyWarnings.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" color="warning.main" gutterBottom>
-                    Warnings ({complianceData.supplyWarnings.length})
-                  </Typography>
-                  <List dense>
-                    {complianceData.supplyWarnings.slice(0, 2).map((warning, index) => (
-                      <ListItem key={index} sx={{ py: 0.5 }}>
-                        <ListItemIcon sx={{ minWidth: 24 }}>
-                          <WarningIcon color="warning" fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText 
-                          primary={warning} 
-                          primaryTypographyProps={{ variant: 'body2' }}
-                        />
-                      </ListItem>
-                    ))}
-                    {complianceData.supplyWarnings.length > 2 && (
-                      <ListItem sx={{ py: 0.5 }}>
-                        <ListItemText 
-                          primary={`... and ${complianceData.supplyWarnings.length - 2} more warnings`}
-                          primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </Box>
-              )}
-            </Box>
+        <Grid item xs={12} md={3}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <ScheduleIcon color="success" sx={{ mr: 1 }} />
+                <Typography variant="h6">Total QREs</Typography>
+              </Box>
+              <Typography variant="h4" color="success.main">
+                ${complianceMetrics.totalQREs.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Qualified Research Expenses
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Compliance Requirements Checklist */}
-      <Card sx={{ mt: 4 }}>
-        <Box sx={{ p: 3 }}>
+      {/* Compliance Checklist */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
           <Typography variant="h6" gutterBottom>
-            R&D Tax Credit Compliance Requirements
+            <AssignmentIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Compliance Checklist
           </Typography>
-          <TableContainer component={Paper} variant="outlined">
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Requirement</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Details</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                <TableRow>
-                  <TableCell>All employees have valid names</TableCell>
-                  <TableCell>
+          
+          <List>
+            {complianceChecklist.map((check, index) => (
+              <React.Fragment key={check.id}>
+                <ListItem>
+                  <ListItemIcon>
+                    {getStatusIcon(check.status)}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography component="span" variant="body1" sx={{ fontWeight: 500 }}>
+                          {check.title}
+                        </Typography>
+                        <Chip
+                          label={check.status.toUpperCase()}
+                          color={getStatusColor(check.status) as any}
+                          size="small"
+                        />
+                      </Box>
+                    }
+                    secondary={
+                      <Box>
+                        <Typography component="span" variant="body2" color="text.secondary">
+                          {check.description}
+                        </Typography>
+                        <Typography component="span" variant="body2" sx={{ mt: 0.5, fontWeight: 500 }}>
+                          {check.details}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+                {index < complianceChecklist.length - 1 && <Divider />}
+              </React.Fragment>
+            ))}
+          </List>
+        </CardContent>
+      </Card>
+
+      {/* Filing Requirements */}
+      <Accordion>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">
+            <ScheduleIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Filing Requirements & Deadlines
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Grid container spacing={3}>
+            {/* Federal Requirements */}
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="primary">
+                    Federal Requirements
+                  </Typography>
+                  <List dense>
+                    <ListItem>
+                      <ListItemIcon>
+                        <CheckCircleIcon color="success" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Form 6765 - Credit for Increasing Research Activities"
+                        secondary="Due with tax return"
+                      />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon>
+                        <CheckCircleIcon color="success" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Section 280C Election"
+                        secondary="Must be made on timely filed return"
+                      />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon>
+                        <InfoIcon color="info" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary="Documentation Requirements"
+                        secondary="Maintain records for 3 years after return due date"
+                      />
+                    </ListItem>
+                  </List>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* State Requirements */}
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="secondary">
+                    State Requirements
+                  </Typography>
+                  {stateCode ? (
+                    <List dense>
+                      <ListItem>
+                        <ListItemIcon>
+                          <InfoIcon color="info" />
+                        </ListItemIcon>
+                          <ListItemText 
+                            primary={`${stateCode} State Credit`}
+                            secondary="Check state-specific requirements"
+                          />
+                        </ListItem>
+                      <ListItem>
+                        <ListItemIcon>
+                          <InfoIcon color="info" />
+                        </ListItemIcon>
+                        <ListItemText 
+                          primary="Pre-filing Requirements"
+                          secondary="May require pre-filing notification"
+                        />
+                      </ListItem>
+                      <ListItem>
+                        <ListItemIcon>
+                          <InfoIcon color="info" />
+                        </ListItemIcon>
+                        <ListItemText 
+                          primary="State Forms"
+                          secondary="Check state tax authority website"
+                        />
+                      </ListItem>
+                    </List>
+                  ) : (
+                    <Alert severity="info">
+                      No state selected. Select a state to view specific requirements.
+                    </Alert>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Federal Credit Calculation Formula Card */}
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined" sx={{ backgroundColor: '#f8f9fa' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="primary">
+                    <CalculateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                    Federal Credit Calculation Formula
+                  </Typography>
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Calculation Method
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                      <Chip
+                        label="ASC Method"
+                        color={method === 'asc' ? 'primary' : 'default'}
+                        onClick={() => setMethod('asc')}
+                        clickable
+                        variant={method === 'asc' ? 'filled' : 'outlined'}
+                        size="small"
+                      />
+                      <Chip
+                        label="Standard Method"
+                        color={method === 'standard' ? 'primary' : 'default'}
+                        onClick={() => setMethod('standard')}
+                        clickable
+                        disabled={!isStandardMethodAvailable}
+                        variant={method === 'standard' ? 'filled' : 'outlined'}
+                        size="small"
+                      />
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Section 280C
+                    </Typography>
                     <Chip
-                      label={complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length === 0 ? 'PASS' : 'FAIL'}
-                      color={complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length === 0 ? 'success' : 'error'}
+                      label={apply280c ? 'Applied' : 'Not Applied'}
+                      color={apply280c ? 'success' : 'default'}
+                      onClick={() => setApply280c(!apply280c)}
+                      clickable
+                      variant={apply280c ? 'filled' : 'outlined'}
                       size="small"
                     />
-                  </TableCell>
-                  <TableCell>
-                    {complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length === 0 
-                      ? 'All employees have valid names'
-                      : `${complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length} employees missing names`
-                    }
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>All contractors have valid names</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length === 0 ? 'PASS' : 'FAIL'}
-                      color={complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length === 0 ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length === 0 
-                      ? 'All contractors have valid names'
-                      : `${complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length} contractors missing names`
-                    }
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>All supplies have valid titles</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 ? 'PASS' : 'FAIL'}
-                      color={complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 
-                      ? 'All supplies have valid titles'
-                      : `${complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length} supplies missing titles`
-                    }
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Applied percentages do not exceed 100%</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={complianceData.totalIssues - complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length - 
-                             complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length - 
-                             complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 ? 'PASS' : 'FAIL'}
-                      color={complianceData.totalIssues - complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length - 
-                             complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length - 
-                             complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {complianceData.totalIssues - complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length - 
-                     complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length - 
-                     complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length === 0 
-                      ? 'All applied percentages are within limits'
-                      : `${complianceData.totalIssues - complianceData.employeeIssues.filter(issue => issue.includes('Missing name')).length - 
-                         complianceData.contractorIssues.filter(issue => issue.includes('Missing name')).length - 
-                         complianceData.supplyIssues.filter(issue => issue.includes('Missing title')).length} items exceed 100%`
-                    }
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Contractor 65% Rule Compliance</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={contractor65RuleCompliance.percentage >= 100 ? 'PASS' : 'WARNING'}
-                      color={contractor65RuleCompliance.percentage >= 100 ? 'success' : 'warning'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {contractor65RuleCompliance.compliant}/{contractor65RuleCompliance.total} contractors comply with 65% rule
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Expenses Approval Status</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={isExpensesApproved ? 'APPROVED' : 'PENDING'}
-                      color={isExpensesApproved ? 'success' : 'warning'}
-                      size="medium"
-                      sx={{ mb: 1 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {isExpensesApproved 
-                      ? 'Expenses have been approved for submission'
-                      : 'Expenses are pending approval'
-                    }
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Box>
+                  </Box>
+
+                  <Divider sx={{ my: 2 }} />
+
+                  {/* ASC Method Formula */}
+                  {method === 'asc' && (
+                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        <strong>ASC Method Formula:</strong>
+                      </Typography>
+                      
+                      {federalDetails.method === 'ASC' ? (
+                        <>
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Base Period Average:
+                            </Typography>
+                            <Typography variant="body2">
+                              ({creditCalculatorInput.priorYearQREs.slice(0, 3).map((qre, i) => `$${qre.toLocaleString()}`).join(' + ')}) ÷ 3 = ${federalDetails.basePeriodAverage?.toLocaleString()}
+                            </Typography>
+                          </Box>
+                          
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Half Base Amount:
+                            </Typography>
+                            <Typography variant="body2">
+                              0.5 × ${federalDetails.basePeriodAverage?.toLocaleString()} = ${federalDetails.halfBase?.toLocaleString()}
+                            </Typography>
+                          </Box>
+                          
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Incremental QREs:
+                            </Typography>
+                            <Typography variant="body2">
+                              ${totalQREs.toLocaleString()} - ${federalDetails.halfBase?.toLocaleString()} = ${federalDetails.incrementalQREs?.toLocaleString()}
+                            </Typography>
+                          </Box>
+                          
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Gross Credit (14% rate):
+                            </Typography>
+                            <Typography variant="body2">
+                              0.14 × ${federalDetails.incrementalQREs?.toLocaleString()} = ${Math.round(grossCredit).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        </>
+                      ) : (
+                        <>
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              No Base Period Available:
+                            </Typography>
+                            <Typography variant="body2">
+                              ${totalQREs.toLocaleString()} × 0.06 = ${Math.round(grossCredit).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        </>
+                      )}
+                      
+                      {apply280c && (
+                        <Box sx={{ mb: 1, mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Section 280C Applied:</strong>
+                          </Typography>
+                          <Typography variant="body2">
+                            ${Math.round(grossCredit).toLocaleString()} × 0.79 = ${Math.round(finalCredit).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Standard Method Formula */}
+                  {method === 'standard' && (
+                    <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        <strong>Standard Method Formula:</strong>
+                      </Typography>
+                      
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Average Gross Receipts (4-year average):
+                        </Typography>
+                        <Typography variant="body2">
+                          ({creditCalculatorInput.priorYearGrossReceipts.map((r, i) => `$${r.toLocaleString()}`).join(' + ')}) ÷ 4 = ${federalDetails.avgGrossReceipts?.toLocaleString()}
+                        </Typography>
+                      </Box>
+                      
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Base Amount (3% of average gross receipts):
+                        </Typography>
+                        <Typography variant="body2">
+                          0.03 × ${federalDetails.avgGrossReceipts?.toLocaleString()} = ${federalDetails.baseAmount?.toLocaleString()}
+                        </Typography>
+                      </Box>
+                      
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Incremental QREs:
+                        </Typography>
+                        <Typography variant="body2">
+                          ${totalQREs.toLocaleString()} - ${federalDetails.baseAmount?.toLocaleString()} = ${federalDetails.incrementalQREs?.toLocaleString()}
+                        </Typography>
+                      </Box>
+                      
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Gross Credit (20% rate):
+                        </Typography>
+                        <Typography variant="body2">
+                          0.20 × ${federalDetails.incrementalQREs?.toLocaleString()} = ${Math.round(grossCredit).toLocaleString()}
+                        </Typography>
+                      </Box>
+                      
+                      {apply280c && (
+                        <Box sx={{ mb: 1, mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Section 280C Applied:</strong>
+                          </Typography>
+                          <Typography variant="body2">
+                            ${Math.round(grossCredit).toLocaleString()} × 0.79 = ${Math.round(finalCredit).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* State Credit Calculation Formula Card */}
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined" sx={{ backgroundColor: '#f8f9fa' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="secondary">
+                    <CalculateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                    State Credit Calculation Formula
+                  </Typography>
+                  
+                  {stateEligibility.isEligible ? (
+                    <>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body2" color="text.secondary">State</Typography>
+                        <Typography variant="h6">{stateCode || 'Not Selected'}</Typography>
+                      </Box>
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                          <strong>{stateCode} State Formula:</strong>
+                        </Typography>
+                        
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            State QREs:
+                          </Typography>
+                          <Typography variant="body2">
+                            ${totalQREs.toLocaleString()}
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Base Amount:
+                          </Typography>
+                          <Typography variant="body2">
+                            ${Math.round(stateCreditResult?.baseAmount || 0).toLocaleString()}
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Excess QREs:
+                          </Typography>
+                          <Typography variant="body2">
+                            ${totalQREs.toLocaleString()} - ${Math.round(stateCreditResult?.baseAmount || 0).toLocaleString()} = ${Math.round(stateCreditResult?.excessQREs || 0).toLocaleString()}
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Credit Rate:
+                          </Typography>
+                          <Typography variant="body2">
+                            {(stateConfig?.creditRate || 0) * 100}%
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Credit Amount:
+                          </Typography>
+                          <Typography variant="body2">
+                            ${Math.round(stateCreditResult?.excessQREs || 0).toLocaleString()} × {(stateConfig?.creditRate || 0) * 100}% = ${Math.round(stateCreditResult?.credit || 0).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </>
+                  ) : (
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      <Typography component="span" variant="body2" gutterBottom>
+                        Not eligible for state credit:
+                      </Typography>
+                      <Box component="ul" sx={{ pl: 2, mb: 0 }}>
+                        {stateEligibility.reasons.map((reason, index) => (
+                          <Typography key={index} component="li" variant="body2">
+                            {reason}
+                          </Typography>
+                        ))}
+                      </Box>
+                    </Alert>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </AccordionDetails>
+      </Accordion>
+
+      {/* Important Notes */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            <InfoIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Important Compliance Notes
+          </Typography>
+          
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography component="span" variant="body2" gutterBottom>
+              <strong>Documentation Requirements:</strong>
+            </Typography>
+            <Typography component="span" variant="body2">
+              Maintain detailed records of all research activities, expenses, and time allocations. 
+              Documentation should support the qualified research expenses claimed and the research 
+              activities performed.
+            </Typography>
+          </Alert>
+
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography component="span" variant="body2" gutterBottom>
+              <strong>Substantiation Requirements:</strong>
+            </Typography>
+            <Typography component="span" variant="body2">
+              Be prepared to substantiate the research activities and expenses with detailed 
+              documentation including project descriptions, time records, and expense receipts.
+            </Typography>
+          </Alert>
+
+          <Alert severity="success">
+            <Typography component="span" variant="body2" gutterBottom>
+              <strong>Professional Assistance:</strong>
+            </Typography>
+            <Typography component="span" variant="body2">
+              Consider consulting with a qualified tax professional to ensure compliance with 
+              all federal and state requirements for R&D tax credits.
+            </Typography>
+          </Alert>
+        </CardContent>
       </Card>
     </Box>
   );

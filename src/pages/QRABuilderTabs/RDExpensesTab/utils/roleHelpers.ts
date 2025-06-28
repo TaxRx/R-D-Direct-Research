@@ -61,7 +61,25 @@ export const calculateRoleAppliedPercentages = (
   // Get QRA data for all activities
   const getQRAData = (activityName: string) => {
     try {
-      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
+      // Find the activity ID by name first
+      const STORAGE_KEY = 'businessInfoData';
+      const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+      const yearData = business?.years?.[selectedYear];
+      const activities = yearData?.activities || {};
+      
+      // Find activity ID by name
+      const activityEntry = Object.entries(activities).find(([id, activity]: [string, any]) => 
+        activity.name === activityName
+      );
+      
+      if (!activityEntry) {
+        console.warn(`Could not find activity with name: ${activityName}`);
+        return null;
+      }
+      
+      const activityId = activityEntry[0];
+      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityId}`);
       return qraData ? JSON.parse(qraData) : null;
     } catch (error) {
       console.error('Error loading QRA data:', error);

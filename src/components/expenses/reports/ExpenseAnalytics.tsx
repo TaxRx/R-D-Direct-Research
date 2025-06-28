@@ -1,40 +1,37 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   Box,
   Card,
+  CardContent,
   Typography,
   Grid,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Chip,
-  LinearProgress,
+  Alert,
   Divider
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
-  Assessment as AssessmentIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon
+  AccountBalance as AccountBalanceIcon,
+  LocationOn as LocationOnIcon,
+  Calculate as CalculateIcon
 } from '@mui/icons-material';
-import { formatCurrency } from '../../../utils/currencyFormatting';
+import { useFederalCreditCalculations, CreditCalculatorInput } from '../credit-calculator/useFederalCreditCalculations';
+import { useStateCreditCalculations } from '../../../hooks/expenses/useStateCreditCalculations';
+import { StateCreditInput } from '../../../types/StateCredit';
+import { Employee, Contractor, Supply } from '../../../types/Employee';
+import { Business } from '../../../types/Business';
 
 interface ExpenseAnalyticsProps {
-  employees: any[];
-  contractors: any[];
-  supplies: any[];
+  employees: Employee[];
+  contractors: Contractor[];
+  supplies: Supply[];
   selectedYear: number;
-  previousYear?: number;
-  previousYearData?: {
-    employees: any[];
-    contractors: any[];
-    supplies: any[];
-  };
+  selectedBusinessId: string;
+  businessType: 'C-Corp' | 'Pass-Through';
+  stateCode?: string;
+  employeeCount?: number;
+  grossReceipts?: number;
+  businesses: Business[];
 }
 
 export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
@@ -42,434 +39,317 @@ export const ExpenseAnalytics: React.FC<ExpenseAnalyticsProps> = ({
   contractors,
   supplies,
   selectedYear,
-  previousYear,
-  previousYearData
+  selectedBusinessId,
+  businessType,
+  stateCode,
+  employeeCount,
+  grossReceipts,
+  businesses
 }) => {
-  // Calculate current year metrics
-  const currentMetrics = useMemo(() => {
-    const totalWages = employees.reduce((sum, emp) => sum + (emp.wage || 0), 0);
-    const totalAppliedWages = employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
-    const totalContractorAmounts = contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0);
-    const totalAppliedContractorAmounts = contractors.reduce((sum, cont) => sum + (cont.appliedAmount || 0), 0);
-    const totalSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0);
-    const totalAppliedSupplyAmounts = supplies.reduce((sum, sup) => sum + (sup.appliedAmount || 0), 0);
-
-    const totalExpenses = totalWages + totalContractorAmounts + totalSupplyAmounts;
-    const totalAppliedExpenses = totalAppliedWages + totalAppliedContractorAmounts + totalAppliedSupplyAmounts;
-    const overallEfficiency = totalExpenses > 0 ? (totalAppliedExpenses / totalExpenses) * 100 : 0;
-
-    return {
-      totalWages,
-      totalAppliedWages,
-      totalContractorAmounts,
-      totalAppliedContractorAmounts,
-      totalSupplyAmounts,
-      totalAppliedSupplyAmounts,
-      totalExpenses,
-      totalAppliedExpenses,
-      overallEfficiency
-    };
+  // Calculate total QREs
+  const totalQREs = React.useMemo(() => {
+    const employeeQREs = employees
+      .filter(emp => emp.isActive)
+      .reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
+    
+    const contractorQREs = contractors
+      .filter(con => con.isActive)
+      .reduce((sum, con) => sum + (con.appliedAmount || 0), 0);
+    
+    const supplyQREs = supplies
+      .filter(sup => sup.isActive)
+      .reduce((sum, sup) => sum + (sup.appliedAmount || 0), 0);
+    
+    return Math.round(employeeQREs + contractorQREs + supplyQREs);
   }, [employees, contractors, supplies]);
 
-  // Calculate year-over-year changes if previous year data is available
-  const yearOverYearChanges = useMemo(() => {
-    if (!previousYearData) return null;
+  // Get business financial history for real data
+  const businessData = React.useMemo(() => {
+    return businesses.find(b => b.id === selectedBusinessId);
+  }, [businesses, selectedBusinessId]);
 
-    const prevMetrics = {
-      totalWages: previousYearData.employees.reduce((sum, emp) => sum + (emp.wage || 0), 0),
-      totalContractorAmounts: previousYearData.contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0),
-      totalSupplyAmounts: previousYearData.supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0),
-      totalExpenses: 0
-    };
-    prevMetrics.totalExpenses = prevMetrics.totalWages + prevMetrics.totalContractorAmounts + prevMetrics.totalSupplyAmounts;
+  // Federal credit calculations with real data
+  const creditCalculatorInput: CreditCalculatorInput = React.useMemo(() => {
+    const financialHistory = businessData?.financialHistory || [];
+    const sortedHistory = [...financialHistory].sort((a, b) => b.year - a.year);
 
-    const calculateChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return ((current - previous) / previous) * 100;
+    const getPriorYearsData = (numberOfYears: number, dataKey: 'qre' | 'grossReceipts') => {
+      const result: number[] = [];
+      for (let i = 1; i <= numberOfYears; i++) {
+        const yearData = sortedHistory.find(h => h.year === selectedYear - i);
+        result.push(yearData?.[dataKey] || 0);
+      }
+      return result;
     };
 
     return {
-      wagesChange: calculateChange(currentMetrics.totalWages, prevMetrics.totalWages),
-      contractorChange: calculateChange(currentMetrics.totalContractorAmounts, prevMetrics.totalContractorAmounts),
-      supplyChange: calculateChange(currentMetrics.totalSupplyAmounts, prevMetrics.totalSupplyAmounts),
-      totalChange: calculateChange(currentMetrics.totalExpenses, prevMetrics.totalExpenses)
+      currentYearQREs: totalQREs,
+      priorYearQREs: getPriorYearsData(4, 'qre'),
+      priorYearGrossReceipts: getPriorYearsData(4, 'grossReceipts'),
+      businessType,
     };
-  }, [currentMetrics, previousYearData]);
+  }, [businessData, selectedYear, totalQREs, businessType]);
 
-  // Calculate compliance metrics
-  const complianceMetrics = useMemo(() => {
-    const totalEmployees = employees.length;
-    const employeesWithValidRoles = employees.filter(emp => emp.role && emp.role !== 'NON_RD_ROLE').length;
-    const employeesWithValidPercentages = employees.filter(emp => (emp.appliedPercentage || 0) > 0).length;
-    
-    const totalContractors = contractors.length;
-    const contractorsWithValidPercentages = contractors.filter(cont => (cont.appliedPercentage || 0) > 0).length;
-    
-    const totalSupplies = supplies.length;
-    const suppliesWithValidPercentages = supplies.filter(sup => (sup.appliedPercentage || 0) > 0).length;
+  const {
+    method,
+    setMethod,
+    apply280c,
+    setApply280c,
+    isStandardMethodAvailable,
+    grossCredit,
+    finalCredit,
+    federalTaxRate
+  } = useFederalCreditCalculations(creditCalculatorInput);
+
+  // State credit calculations
+  const stateCreditInput: StateCreditInput = React.useMemo(() => {
+    const financialHistory = businessData?.financialHistory || [];
+    const sortedHistory = [...financialHistory].sort((a, b) => b.year - a.year);
+
+    const getPriorYearsData = (numberOfYears: number, dataKey: 'qre' | 'grossReceipts') => {
+      const result: number[] = [];
+      for (let i = 1; i <= numberOfYears; i++) {
+        const yearData = sortedHistory.find(h => h.year === selectedYear - i);
+        result.push(yearData?.[dataKey] || 0);
+      }
+      return result;
+    };
 
     return {
-      employeeCompliance: totalEmployees > 0 ? (employeesWithValidRoles / totalEmployees) * 100 : 0,
-      employeePercentageCompliance: totalEmployees > 0 ? (employeesWithValidPercentages / totalEmployees) * 100 : 0,
-      contractorCompliance: totalContractors > 0 ? (contractorsWithValidPercentages / totalContractors) * 100 : 0,
-      supplyCompliance: totalSupplies > 0 ? (suppliesWithValidPercentages / totalSupplies) * 100 : 0
+      stateQREs: totalQREs,
+      priorYearQREs: getPriorYearsData(4, 'qre'),
+      federalCredit: Math.round(finalCredit),
+      stateCode: stateCode || 'CA',
+      year: selectedYear,
+      calculationYear: selectedYear,
+      businessType: businessType === 'C-Corp' ? 'C-Corp' : 'LLC',
+      employeeCount,
+      grossReceipts
     };
-  }, [employees, contractors, supplies]);
+  }, [businessData, selectedYear, totalQREs, finalCredit, stateCode, businessType, employeeCount, grossReceipts]);
 
-  // Calculate distribution metrics
-  const distributionMetrics = useMemo(() => {
-    const totalExpenses = currentMetrics.totalExpenses;
-    if (totalExpenses === 0) return { wages: 0, contractors: 0, supplies: 0 };
-
-    return {
-      wages: (currentMetrics.totalWages / totalExpenses) * 100,
-      contractors: (currentMetrics.totalContractorAmounts / totalExpenses) * 100,
-      supplies: (currentMetrics.totalSupplyAmounts / totalExpenses) * 100
-    };
-  }, [currentMetrics]);
-
-  const getChangeIcon = (change: number) => {
-    if (change > 0) return <TrendingUpIcon color="success" />;
-    if (change < 0) return <TrendingDownIcon color="error" />;
-    return null;
-  };
-
-  const getChangeColor = (change: number) => {
-    if (change > 0) return 'success';
-    if (change < 0) return 'error';
-    return 'default';
-  };
+  const {
+    result: stateCreditResult,
+    eligibility: stateEligibility,
+    config: stateConfig
+  } = useStateCreditCalculations(stateCreditInput);
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <AssessmentIcon color="primary" />
-        R&D Expenses Analytics - {selectedYear}
+      <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
+        <CalculateIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+        Credit Calculations & Analytics
       </Typography>
 
-      {/* Key Metrics Cards */}
+      {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Total Expenses
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {formatCurrency(currentMetrics.totalExpenses)}
-            </Typography>
-            {yearOverYearChanges && (
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mt: 1 }}>
-                {getChangeIcon(yearOverYearChanges.totalChange)}
-                <Chip
-                  label={`${yearOverYearChanges.totalChange > 0 ? '+' : ''}${yearOverYearChanges.totalChange.toFixed(1)}%`}
-                  color={getChangeColor(yearOverYearChanges.totalChange) as any}
-                  size="small"
-                  sx={{ ml: 1 }}
-                />
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <TrendingUpIcon color="primary" sx={{ mr: 1 }} />
+                <Typography variant="h6">Total QREs</Typography>
               </Box>
-            )}
+              <Typography variant="h4" color="primary">
+                ${totalQREs.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Qualified Research Expenses
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
 
         <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Applied Expenses
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {formatCurrency(currentMetrics.totalAppliedExpenses)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {currentMetrics.overallEfficiency.toFixed(1)}% efficiency
-            </Typography>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <AccountBalanceIcon color="success" sx={{ mr: 1 }} />
+                <Typography variant="h6">Federal Credit</Typography>
+              </Box>
+              <Typography variant="h4" color="success.main">
+                ${Math.round(finalCredit).toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {method.toUpperCase()} Method
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
 
         <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Total Items
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {employees.length + contractors.length + supplies.length}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {employees.length} employees, {contractors.length} contractors, {supplies.length} supplies
-            </Typography>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <LocationOnIcon color="secondary" sx={{ mr: 1 }} />
+                <Typography variant="h6">State Credit</Typography>
+              </Box>
+              <Typography variant="h4" color="secondary.main">
+                ${Math.round(stateCreditResult?.credit || 0).toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {stateCode || 'No State'} Credit
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
 
         <Grid item xs={12} md={3}>
-          <Card sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h6" color="primary" gutterBottom>
-              Compliance Score
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-              {((complianceMetrics.employeeCompliance + complianceMetrics.contractorCompliance + complianceMetrics.supplyCompliance) / 3).toFixed(1)}%
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Overall compliance
-            </Typography>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <CalculateIcon color="info" sx={{ mr: 1 }} />
+                <Typography variant="h6">Total Credit</Typography>
+              </Box>
+              <Typography variant="h4" color="info.main">
+                ${Math.round(finalCredit + (stateCreditResult?.credit || 0)).toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Combined Benefits
+              </Typography>
+            </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Expense Distribution */}
-      <Card sx={{ mb: 4 }}>
-        <Box sx={{ p: 3 }}>
+      {/* Federal Credit Details */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
           <Typography variant="h6" gutterBottom>
-            Expense Distribution
+            <AccountBalanceIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Federal R&D Credit Details
           </Typography>
+          
           <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Wages</Typography>
-                  <Typography variant="body2">{distributionMetrics.wages.toFixed(1)}%</Typography>
-                </Box>
-                <Box sx={{ position: 'relative' }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={distributionMetrics.wages}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'blue.100' }}
-                  />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      height: '100%',
-                      width: `${currentMetrics.totalWages > 0 ? (currentMetrics.totalAppliedWages / currentMetrics.totalWages) * 100 : 0}%`,
-                      bgcolor: 'blue.600',
-                      borderRadius: '4px 0 0 4px',
-                      opacity: 0.7
-                    }}
-                  />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Total: {formatCurrency(currentMetrics.totalWages)}
-                  </Typography>
-                  <Typography variant="caption" color="blue.600">
-                    Applied: {formatCurrency(currentMetrics.totalAppliedWages)} (
-                    {currentMetrics.totalWages > 0 ? ((currentMetrics.totalAppliedWages / currentMetrics.totalWages) * 100).toFixed(1) : 0}%)
-                  </Typography>
-                </Box>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Contractors</Typography>
-                  <Typography variant="body2">{distributionMetrics.contractors.toFixed(1)}%</Typography>
-                </Box>
-                <Box sx={{ position: 'relative' }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={distributionMetrics.contractors}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'green.100' }}
-                  />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      height: '100%',
-                      width: `${currentMetrics.totalContractorAmounts > 0 ? (currentMetrics.totalAppliedContractorAmounts / currentMetrics.totalContractorAmounts) * 100 : 0}%`,
-                      bgcolor: 'green.600',
-                      borderRadius: '4px 0 0 4px',
-                      opacity: 0.7
-                    }}
-                  />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Total: {formatCurrency(currentMetrics.totalContractorAmounts)}
-                  </Typography>
-                  <Typography variant="caption" color="green.600">
-                    Applied: {formatCurrency(currentMetrics.totalAppliedContractorAmounts)} (
-                    {currentMetrics.totalContractorAmounts > 0 ? ((currentMetrics.totalAppliedContractorAmounts / currentMetrics.totalContractorAmounts) * 100).toFixed(1) : 0}%)
-                  </Typography>
-                </Box>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Supplies</Typography>
-                  <Typography variant="body2">{distributionMetrics.supplies.toFixed(1)}%</Typography>
-                </Box>
-                <Box sx={{ position: 'relative' }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={distributionMetrics.supplies}
-                    sx={{ height: 20, borderRadius: 1, bgcolor: 'orange.100' }}
-                  />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      height: '100%',
-                      width: `${currentMetrics.totalSupplyAmounts > 0 ? (currentMetrics.totalAppliedSupplyAmounts / currentMetrics.totalSupplyAmounts) * 100 : 0}%`,
-                      bgcolor: 'orange.600',
-                      borderRadius: '4px 0 0 4px',
-                      opacity: 0.7
-                    }}
-                  />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Total: {formatCurrency(currentMetrics.totalSupplyAmounts)}
-                  </Typography>
-                  <Typography variant="caption" color="orange.600">
-                    Applied: {formatCurrency(currentMetrics.totalAppliedSupplyAmounts)} (
-                    {currentMetrics.totalSupplyAmounts > 0 ? ((currentMetrics.totalAppliedSupplyAmounts / currentMetrics.totalSupplyAmounts) * 100).toFixed(1) : 0}%)
-                  </Typography>
-                </Box>
-              </Box>
-            </Grid>
-          </Grid>
-        </Box>
-      </Card>
-
-      {/* Compliance Analysis */}
-      <Card sx={{ mb: 4 }}>
-        <Box sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Compliance Analysis
-          </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                  {complianceMetrics.employeeCompliance >= 80 ? (
-                    <CheckCircleIcon color="success" />
-                  ) : (
-                    <WarningIcon color="warning" />
-                  )}
-                </Box>
-                <Typography variant="h6">{complianceMetrics.employeeCompliance.toFixed(1)}%</Typography>
-                <Typography variant="body2" color="text.secondary">Employee Compliance</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                  {complianceMetrics.contractorCompliance >= 80 ? (
-                    <CheckCircleIcon color="success" />
-                  ) : (
-                    <WarningIcon color="warning" />
-                  )}
-                </Box>
-                <Typography variant="h6">{complianceMetrics.contractorCompliance.toFixed(1)}%</Typography>
-                <Typography variant="body2" color="text.secondary">Contractor Compliance</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                  {complianceMetrics.supplyCompliance >= 80 ? (
-                    <CheckCircleIcon color="success" />
-                  ) : (
-                    <WarningIcon color="warning" />
-                  )}
-                </Box>
-                <Typography variant="h6">{complianceMetrics.supplyCompliance.toFixed(1)}%</Typography>
-                <Typography variant="body2" color="text.secondary">Supply Compliance</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6">{currentMetrics.overallEfficiency.toFixed(1)}%</Typography>
-                <Typography variant="body2" color="text.secondary">Overall Efficiency</Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={currentMetrics.overallEfficiency} 
-                  sx={{ mt: 1, height: 6, borderRadius: 3 }}
+            <Grid item xs={12} md={6}>
+              <Typography variant="body2" color="text.secondary">Calculation Method</Typography>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Chip
+                  label="ASC Method"
+                  color={method === 'asc' ? 'primary' : 'default'}
+                  onClick={() => setMethod('asc')}
+                  clickable
+                  variant={method === 'asc' ? 'filled' : 'outlined'}
+                />
+                <Chip
+                  label="Standard Method"
+                  color={method === 'standard' ? 'primary' : 'default'}
+                  onClick={() => setMethod('standard')}
+                  clickable
+                  disabled={!isStandardMethodAvailable}
+                  variant={method === 'standard' ? 'filled' : 'outlined'}
                 />
               </Box>
             </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="body2" color="text.secondary">Section 280C</Typography>
+              <Chip
+                label={apply280c ? 'Applied' : 'Not Applied'}
+                color={apply280c ? 'success' : 'default'}
+                onClick={() => setApply280c(!apply280c)}
+                clickable
+                variant={apply280c ? 'filled' : 'outlined'}
+                sx={{ mt: 1 }}
+              />
+            </Grid>
           </Grid>
-        </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <Typography variant="body2" color="text.secondary">Gross Credit</Typography>
+              <Typography variant="h6">${Math.round(grossCredit).toLocaleString()}</Typography>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Typography variant="body2" color="text.secondary">Tax Rate</Typography>
+              <Typography variant="h6">{(federalTaxRate * 100).toFixed(1)}%</Typography>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Typography variant="body2" color="text.secondary">Final Credit</Typography>
+              <Typography variant="h6" color="success.main">${Math.round(finalCredit).toLocaleString()}</Typography>
+            </Grid>
+          </Grid>
+        </CardContent>
       </Card>
 
-      {/* Year-over-Year Comparison */}
-      {yearOverYearChanges && (
-        <Card>
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Year-over-Year Comparison ({previousYear} → {selectedYear})
-            </Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Category</TableCell>
-                    <TableCell align="right">Previous Year</TableCell>
-                    <TableCell align="right">Current Year</TableCell>
-                    <TableCell align="right">Change</TableCell>
-                    <TableCell align="center">Trend</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  <TableRow>
-                    <TableCell>Wages</TableCell>
-                    <TableCell align="right">
-                      {formatCurrency(previousYearData!.employees.reduce((sum, emp) => sum + (emp.wage || 0), 0))}
-                    </TableCell>
-                    <TableCell align="right">{formatCurrency(currentMetrics.totalWages)}</TableCell>
-                    <TableCell align="right">
-                      <Chip
-                        label={`${yearOverYearChanges.wagesChange > 0 ? '+' : ''}${yearOverYearChanges.wagesChange.toFixed(1)}%`}
-                        color={getChangeColor(yearOverYearChanges.wagesChange) as any}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      {getChangeIcon(yearOverYearChanges.wagesChange)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Contractors</TableCell>
-                    <TableCell align="right">
-                      {formatCurrency(previousYearData!.contractors.reduce((sum, cont) => sum + (cont.totalAmount || 0), 0))}
-                    </TableCell>
-                    <TableCell align="right">{formatCurrency(currentMetrics.totalContractorAmounts)}</TableCell>
-                    <TableCell align="right">
-                      <Chip
-                        label={`${yearOverYearChanges.contractorChange > 0 ? '+' : ''}${yearOverYearChanges.contractorChange.toFixed(1)}%`}
-                        color={getChangeColor(yearOverYearChanges.contractorChange) as any}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      {getChangeIcon(yearOverYearChanges.contractorChange)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>Supplies</TableCell>
-                    <TableCell align="right">
-                      {formatCurrency(previousYearData!.supplies.reduce((sum, sup) => sum + (sup.totalValue || 0), 0))}
-                    </TableCell>
-                    <TableCell align="right">{formatCurrency(currentMetrics.totalSupplyAmounts)}</TableCell>
-                    <TableCell align="right">
-                      <Chip
-                        label={`${yearOverYearChanges.supplyChange > 0 ? '+' : ''}${yearOverYearChanges.supplyChange.toFixed(1)}%`}
-                        color={getChangeColor(yearOverYearChanges.supplyChange) as any}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      {getChangeIcon(yearOverYearChanges.supplyChange)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        </Card>
-      )}
+      {/* State Credit Details */}
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            <LocationOnIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            State R&D Credit Details
+          </Typography>
+
+          {stateEligibility.isEligible ? (
+            <>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">State</Typography>
+                  <Typography variant="h6">{stateCode || 'Not Selected'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Calculation Method</Typography>
+                  <Typography variant="h6">{stateConfig?.calculationMethod || 'N/A'}</Typography>
+                </Grid>
+              </Grid>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="text.secondary">Base Amount</Typography>
+                  <Typography variant="h6">${Math.round(stateCreditResult?.baseAmount || 0).toLocaleString()}</Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="text.secondary">Excess QREs</Typography>
+                  <Typography variant="h6">${Math.round(stateCreditResult?.excessQREs || 0).toLocaleString()}</Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="text.secondary">Credit Rate</Typography>
+                  <Typography variant="h6">{(stateConfig?.creditRate || 0) * 100}%</Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="text.secondary">Credit Amount</Typography>
+                  <Typography variant="h6" color="secondary.main">
+                    ${Math.round(stateCreditResult?.credit || 0).toLocaleString()}
+                  </Typography>
+                </Grid>
+              </Grid>
+
+              {stateConfig?.notes && stateConfig.notes.length > 0 && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Important Notes:
+                  </Typography>
+                  <Box component="ul" sx={{ pl: 2 }}>
+                    {stateConfig.notes.map((note, index) => (
+                      <Typography key={index} component="li" variant="body2">
+                        {note}
+                      </Typography>
+                    ))}
+                  </Box>
+                </>
+              )}
+            </>
+          ) : (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="body2" gutterBottom>
+                Not eligible for state credit:
+              </Typography>
+              <Box component="ul" sx={{ pl: 2, mb: 0 }}>
+                {stateEligibility.reasons.map((reason, index) => (
+                  <Typography key={index} component="li" variant="body2">
+                    {reason}
+                  </Typography>
+                ))}
+              </Box>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }; 

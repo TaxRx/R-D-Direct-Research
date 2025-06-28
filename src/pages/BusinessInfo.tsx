@@ -41,6 +41,7 @@ import CardHeader from '@mui/material/CardHeader';
 import CardActions from '@mui/material/CardActions';
 import Collapse from '@mui/material/Collapse';
 import { Business, Owner, FinancialYear, TabApproval } from '../types/Business';
+import { SupabaseBusinessService } from '../services/supabaseBusinessService';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -70,21 +71,70 @@ interface BusinessInfoProps {
   selectedBusinessId: string;
   setBusinesses: React.Dispatch<React.SetStateAction<Business[]>>;
   setSelectedBusinessId: React.Dispatch<React.SetStateAction<string>>;
+  onRefreshBusinesses?: () => Promise<void>;
 }
 
-const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusinessId, setBusinesses, setSelectedBusinessId }) => {
+const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusinessId, setBusinesses, setSelectedBusinessId, onRefreshBusinesses }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [ownershipError, setOwnershipError] = useState<string>('');
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
-  const [approvedTabs, setApprovedTabs] = useState<boolean[]>([false, false, false]);
+  const [approvedTabs, setApprovedTabs] = useState([false, false, false]);
   const [showApprovalPrompt, setShowApprovalPrompt] = useState(false);
-  const [tabReadOnly, setTabReadOnly] = useState<boolean[]>([false, false, false]);
+  const [tabReadOnly, setTabReadOnly] = useState([false, false, false]);
   const [showToast, setShowToast] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
-  const [saveIndicator, setSaveIndicator] = useState(false);
+
+  // Load latest business data from Supabase when component mounts
+  useEffect(() => {
+    const loadLatestBusinessData = async () => {
+      if (selectedBusinessId) {
+        try {
+          const business = await SupabaseBusinessService.getBusiness(selectedBusinessId);
+          if (business) {
+            // Update the businesses array with the latest data
+            setBusinesses(prev => {
+              const existingIndex = prev.findIndex(b => b.id === selectedBusinessId);
+              if (existingIndex >= 0) {
+                const updated = [...prev];
+                updated[existingIndex] = business;
+                return updated;
+              }
+              return prev;
+            });
+
+            // Update approved tabs state based on loaded data
+            const newApprovedTabs = [
+              business.tabApprovals?.basicInfo?.isApproved || false,
+              business.tabApprovals?.ownership?.isApproved || false,
+              business.tabApprovals?.financial?.isApproved || false
+            ];
+            setApprovedTabs(newApprovedTabs);
+            setTabReadOnly(newApprovedTabs);
+          }
+        } catch (error) {
+          console.error('Error loading latest business data:', error);
+        }
+      }
+    };
+
+    loadLatestBusinessData();
+  }, [selectedBusinessId, setBusinesses]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
+  };
+
+  const saveBusinessToSupabase = async (business: Business) => {
+    try {
+      await SupabaseBusinessService.updateBusiness(business.id, business);
+      console.log('✅ Business saved to Supabase:', business.businessName, business.id);
+      setToastMsg('Business information saved successfully!');
+      setShowToast(true);
+    } catch (error) {
+      console.error('Error saving business to Supabase:', error);
+      setToastMsg('Error saving business information');
+      setShowToast(true);
+    }
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,6 +144,8 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
         const updatedBusiness = { ...business, [name]: value };
         const errors = validateBusiness(updatedBusiness);
         setValidationErrors(errors);
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
         return updatedBusiness;
       }
       return business;
@@ -107,6 +159,8 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
         const updatedBusiness = { ...business, [name]: value };
         const errors = validateBusiness(updatedBusiness);
         setValidationErrors(errors);
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
         return updatedBusiness;
       }
       return business;
@@ -147,6 +201,8 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
         const updatedBusiness = { ...business, owners: updatedOwners };
         const errors = validateBusiness(updatedBusiness);
         setValidationErrors(errors);
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
         return updatedBusiness;
       }
       return business;
@@ -160,19 +216,27 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
       ownershipPercentage: 0,
       isResearchLeader: false,
     };
-    setBusinesses(businesses.map(business =>
-      business.id === selectedBusinessId
-        ? { ...business, owners: [...business.owners, newOwner] }
-        : business
-    ));
+    setBusinesses(businesses.map(business => {
+      if (business.id === selectedBusinessId) {
+        const updatedBusiness = { ...business, owners: [...business.owners, newOwner] };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
+      }
+      return business;
+    }));
   };
 
   const removeOwner = (ownerId: string) => {
-    setBusinesses(businesses.map(business =>
-      business.id === selectedBusinessId
-        ? { ...business, owners: business.owners.filter(owner => owner.id !== ownerId) }
-        : business
-    ));
+    setBusinesses(businesses.map(business => {
+      if (business.id === selectedBusinessId) {
+        const updatedBusiness = { ...business, owners: business.owners.filter(owner => owner.id !== ownerId) };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
+      }
+      return business;
+    }));
   };
 
   const validateOwnership = (owners: Owner[]): boolean => {
@@ -194,7 +258,10 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
           const existing = existingHistory.find(h => h.year === year);
           return existing || { year, grossReceipts: 0, qre: 0 };
         });
-        return { ...business, startYear: year, financialHistory: updatedHistory };
+        const updatedBusiness = { ...business, startYear: year, financialHistory: updatedHistory };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
       }
       return business;
     }));
@@ -212,7 +279,10 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
         const finalHistory = updatedHistory.map(y =>
           y.year === year ? { ...y, [field]: numericValue } : y
         ).sort((a, b) => b.year - a.year);
-        return { ...business, financialHistory: finalHistory };
+        const updatedBusiness = { ...business, financialHistory: finalHistory };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
       }
       return business;
     }));
@@ -267,19 +337,27 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
   };
 
   const handleControlledGroupChange = (checked: boolean) => {
-    setBusinesses(businesses.map(business =>
-      business.id === selectedBusinessId
-        ? { ...business, isControlledGroup: checked, isControlGroupLeader: checked ? business.isControlGroupLeader : false }
-        : business
-    ));
+    setBusinesses(businesses.map(business => {
+      if (business.id === selectedBusinessId) {
+        const updatedBusiness = { ...business, isControlledGroup: checked, isControlGroupLeader: checked ? business.isControlGroupLeader : false };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
+      }
+      return business;
+    }));
   };
 
   const handleControlGroupLeaderChange = (checked: boolean) => {
-    setBusinesses(businesses.map(business =>
-      business.id === selectedBusinessId
-        ? { ...business, isControlGroupLeader: checked }
-        : business
-    ));
+    setBusinesses(businesses.map(business => {
+      if (business.id === selectedBusinessId) {
+        const updatedBusiness = { ...business, isControlGroupLeader: checked };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
+      }
+      return business;
+    }));
   };
 
   const handleNext = () => {
@@ -293,7 +371,7 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
 
     setBusinesses(businesses.map(business => {
       if (business.id === selectedBusinessId) {
-        return {
+        const updatedBusiness = {
           ...business,
           tabApprovals: {
             ...business.tabApprovals,
@@ -304,6 +382,9 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
             }
           }
         };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
       }
       return business;
     }));
@@ -327,7 +408,7 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
     
     setBusinesses(businesses.map(business => {
       if (business.id === selectedBusinessId) {
-        return {
+        const updatedBusiness = {
           ...business,
           tabApprovals: {
             ...business.tabApprovals,
@@ -338,6 +419,9 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
             }
           }
         };
+        // Save to Supabase
+        saveBusinessToSupabase(updatedBusiness);
+        return updatedBusiness;
       }
       return business;
     }));
@@ -427,23 +511,25 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
           </FormControl>
         </Grid>
         <Grid item xs={12} md={6}>
-          <FormControl fullWidth required error={!!validationErrors.entityState}>
-            <InputLabel>Entity State</InputLabel>
-            <Select
-              name="entityState"
-              value={selectedBusiness.entityState}
-              onChange={handleSelectChange}
-              label="Entity State"
-            >
-              <MenuItem value="CA">California</MenuItem>
-              <MenuItem value="NY">New York</MenuItem>
-              <MenuItem value="TX">Texas</MenuItem>
-              <MenuItem value="FL">Florida</MenuItem>
-            </Select>
-            {validationErrors.entityState && (
-              <FormHelperText>{validationErrors.entityState}</FormHelperText>
-            )}
-          </FormControl>
+          <Tooltip title="State where the business is legally domiciled/incorporated (used for tax purposes)">
+            <FormControl fullWidth required error={!!validationErrors.entityState}>
+              <InputLabel>Domiciled State</InputLabel>
+              <Select
+                name="entityState"
+                value={selectedBusiness.entityState}
+                onChange={handleSelectChange}
+                label="Domiciled State"
+              >
+                <MenuItem value="CA">California</MenuItem>
+                <MenuItem value="NY">New York</MenuItem>
+                <MenuItem value="TX">Texas</MenuItem>
+                <MenuItem value="FL">Florida</MenuItem>
+              </Select>
+              {validationErrors.entityState && (
+                <FormHelperText>{validationErrors.entityState}</FormHelperText>
+              )}
+            </FormControl>
+          </Tooltip>
         </Grid>
         <Grid item xs={12} md={6}>
           <TextField
@@ -458,6 +544,127 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
             helperText={validationErrors.startYear}
           />
         </Grid>
+        
+        {/* Contact Information Section */}
+        <Grid item xs={12}>
+          <Typography variant="h6" sx={{ mt: 2, mb: 2, color: 'primary.main' }}>
+            Contact Information
+          </Typography>
+        </Grid>
+        
+        <Grid item xs={12}>
+          <TextField
+            fullWidth
+            label="Street Address"
+            name="mailingStreetAddress"
+            value={selectedBusiness.mailingStreetAddress}
+            onChange={handleTextChange}
+            placeholder="123 Main Street"
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <TextField
+            fullWidth
+            label="City"
+            name="mailingCity"
+            value={selectedBusiness.mailingCity}
+            onChange={handleTextChange}
+            placeholder="Anytown"
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <FormControl fullWidth>
+            <InputLabel>State</InputLabel>
+            <Select
+              name="mailingState"
+              value={selectedBusiness.mailingState}
+              onChange={handleSelectChange}
+              label="State"
+            >
+              <MenuItem value="AL">Alabama</MenuItem>
+              <MenuItem value="AK">Alaska</MenuItem>
+              <MenuItem value="AZ">Arizona</MenuItem>
+              <MenuItem value="AR">Arkansas</MenuItem>
+              <MenuItem value="CA">California</MenuItem>
+              <MenuItem value="CO">Colorado</MenuItem>
+              <MenuItem value="CT">Connecticut</MenuItem>
+              <MenuItem value="DE">Delaware</MenuItem>
+              <MenuItem value="FL">Florida</MenuItem>
+              <MenuItem value="GA">Georgia</MenuItem>
+              <MenuItem value="HI">Hawaii</MenuItem>
+              <MenuItem value="ID">Idaho</MenuItem>
+              <MenuItem value="IL">Illinois</MenuItem>
+              <MenuItem value="IN">Indiana</MenuItem>
+              <MenuItem value="IA">Iowa</MenuItem>
+              <MenuItem value="KS">Kansas</MenuItem>
+              <MenuItem value="KY">Kentucky</MenuItem>
+              <MenuItem value="LA">Louisiana</MenuItem>
+              <MenuItem value="ME">Maine</MenuItem>
+              <MenuItem value="MD">Maryland</MenuItem>
+              <MenuItem value="MA">Massachusetts</MenuItem>
+              <MenuItem value="MI">Michigan</MenuItem>
+              <MenuItem value="MN">Minnesota</MenuItem>
+              <MenuItem value="MS">Mississippi</MenuItem>
+              <MenuItem value="MO">Missouri</MenuItem>
+              <MenuItem value="MT">Montana</MenuItem>
+              <MenuItem value="NE">Nebraska</MenuItem>
+              <MenuItem value="NV">Nevada</MenuItem>
+              <MenuItem value="NH">New Hampshire</MenuItem>
+              <MenuItem value="NJ">New Jersey</MenuItem>
+              <MenuItem value="NM">New Mexico</MenuItem>
+              <MenuItem value="NY">New York</MenuItem>
+              <MenuItem value="NC">North Carolina</MenuItem>
+              <MenuItem value="ND">North Dakota</MenuItem>
+              <MenuItem value="OH">Ohio</MenuItem>
+              <MenuItem value="OK">Oklahoma</MenuItem>
+              <MenuItem value="OR">Oregon</MenuItem>
+              <MenuItem value="PA">Pennsylvania</MenuItem>
+              <MenuItem value="RI">Rhode Island</MenuItem>
+              <MenuItem value="SC">South Carolina</MenuItem>
+              <MenuItem value="SD">South Dakota</MenuItem>
+              <MenuItem value="TN">Tennessee</MenuItem>
+              <MenuItem value="TX">Texas</MenuItem>
+              <MenuItem value="UT">Utah</MenuItem>
+              <MenuItem value="VT">Vermont</MenuItem>
+              <MenuItem value="VA">Virginia</MenuItem>
+              <MenuItem value="WA">Washington</MenuItem>
+              <MenuItem value="WV">West Virginia</MenuItem>
+              <MenuItem value="WI">Wisconsin</MenuItem>
+              <MenuItem value="WY">Wyoming</MenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <TextField
+            fullWidth
+            label="ZIP Code"
+            name="mailingZip"
+            value={selectedBusiness.mailingZip}
+            onChange={handleTextChange}
+            placeholder="12345"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            label="Website"
+            name="website"
+            value={selectedBusiness.website}
+            onChange={handleTextChange}
+            placeholder="https://www.example.com"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            label="Phone Number"
+            name="phoneNumber"
+            value={selectedBusiness.phoneNumber}
+            onChange={handleTextChange}
+            placeholder="(555) 123-4567"
+          />
+        </Grid>
+        
         {businesses.length > 1 && (
           <Grid item xs={12} md={6}>
             <FormControlLabel
@@ -735,39 +942,12 @@ const BusinessInfo: React.FC<BusinessInfoProps> = ({ businesses, selectedBusines
 
   const progress = (approvedTabs.filter(Boolean).length / approvedTabs.length) * 100;
 
-  useEffect(() => {
-    setSaveIndicator(true);
-    const timeout = setTimeout(() => setSaveIndicator(false), 1200);
-    return () => clearTimeout(timeout);
-  }, [businesses, selectedBusinessId]);
-
-  useEffect(() => {
-    const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
-    if (selectedBusiness && selectedBusiness.tabApprovals) {
-      setApprovedTabs([
-        !!selectedBusiness.tabApprovals.basicInfo.isApproved,
-        !!selectedBusiness.tabApprovals.ownership.isApproved,
-        !!selectedBusiness.tabApprovals.financial.isApproved,
-      ]);
-      setTabReadOnly([
-        !!selectedBusiness.tabApprovals.basicInfo.isApproved,
-        !!selectedBusiness.tabApprovals.ownership.isApproved,
-        !!selectedBusiness.tabApprovals.financial.isApproved,
-      ]);
-    }
-  }, [businesses, selectedBusinessId]);
-
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 4 }}>
       <Box sx={{ mb: 2 }}>
         <LinearProgress variant="determinate" value={progress} sx={{ height: 10, borderRadius: 5, bgcolor: '#e3f2fd', '& .MuiLinearProgress-bar': { bgcolor: '#ff9800' } }} />
         <Typography variant="caption" sx={{ color: '#1976d2', fontWeight: 600, mt: 1, display: 'block', textAlign: 'right' }}>{Math.round(progress)}% Complete</Typography>
       </Box>
-      {saveIndicator && (
-        <Box sx={{ mb: 1, textAlign: 'right' }}>
-          <Typography variant="caption" sx={{ color: green[600], fontWeight: 500 }}>All changes saved</Typography>
-        </Box>
-      )}
       <Box sx={{ mb: 2 }}>
         <Typography variant="h6" sx={{ color: '#ff9800', fontWeight: 700 }}>
           {approvedTabs.filter(Boolean).length === 0 && "Let's get started!"}

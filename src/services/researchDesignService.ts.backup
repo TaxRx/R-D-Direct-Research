@@ -1,0 +1,340 @@
+import { QRAActivityData, ResearchStep, ResearchSubcomponent } from '../types/ReportQRA';
+import { QRADataExportService, QRAExportData } from './qraDataExportService';
+
+// Local storage keys
+const getResearchDesignKey = (activityId: string, year: number) => `research-design-${activityId}-${year}`;
+
+// Color palettes
+const STEP_COLORS = [
+  '#1976d2', '#43a047', '#fbc02d', '#e64a19', '#8e24aa',
+  '#00838f', '#c62828', '#6d4c41', '#3949ab', '#00acc1'
+];
+
+const SUBCOMPONENT_COLORS = [
+  '#2196f3', '#4caf50', '#ff9800', '#9c27b0', '#009688',
+  '#f44336', '#795548', '#3f51b5', '#00bcd4', '#ff5722'
+];
+
+// Helper functions
+const getNextStepColor = (existingSteps: ResearchStep[]): string => {
+  const usedColors = new Set(existingSteps.map(step => step.color).filter(Boolean));
+  for (const color of STEP_COLORS) {
+    if (!usedColors.has(color)) return color;
+  }
+  return STEP_COLORS[0];
+};
+
+const getNextSubcomponentColor = (existingSubcomponents: ResearchSubcomponent[]): string => {
+  const usedColors = new Set(existingSubcomponents.map(sub => sub.color).filter(Boolean));
+  for (const color of SUBCOMPONENT_COLORS) {
+    if (!usedColors.has(color)) return color;
+  }
+  return SUBCOMPONENT_COLORS[0];
+};
+
+// Load research design data for an activity
+export const loadResearchDesign = (activityId: string, year: number): ResearchStep[] => {
+  try {
+    const stored = localStorage.getItem(getResearchDesignKey(activityId, year));
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (error) {
+    console.error('Error loading research design data:', error);
+  }
+  return [];
+};
+
+// Save research design data for an activity
+export const saveResearchDesign = (activityId: string, year: number, steps: ResearchStep[]): void => {
+  try {
+    localStorage.setItem(getResearchDesignKey(activityId, year), JSON.stringify(steps));
+  } catch (error) {
+    console.error('Error saving research design data:', error);
+  }
+};
+
+// Load normalized QRA export data for Research Design
+export const loadQRAExportData = (businessId: string, year: number): QRAExportData | null => {
+  try {
+    const exportKey = `qra_export_${businessId}_${year}`;
+    const exportData = localStorage.getItem(exportKey);
+    
+    if (exportData) {
+      const parsed = JSON.parse(exportData) as QRAExportData;
+      console.log('Loaded QRA export data for Research Design:', parsed);
+      return parsed;
+    }
+    
+    console.warn('No QRA export data found for Research Design, businessId:', businessId, 'year:', year);
+    return null;
+  } catch (error) {
+    console.error('Error loading QRA export data:', error);
+    return null;
+  }
+};
+
+// Convert QRA export data to Research Design format
+export const convertExportDataToResearchDesign = (exportData: QRAExportData): QRAActivityData[] => {
+  return exportData.researchActivities.map(activity => ({
+    id: activity.id,
+    name: activity.name,
+    practicePercent: activity.practicePercent,
+    nonRDTime: activity.nonRDTime,
+    active: activity.active,
+    selectedRoles: activity.selectedRoles,
+    category: activity.category || '',
+    area: activity.area || '',
+    focus: activity.focus || '',
+    appliedPercent: activity.totalAppliedPercent,
+    subcomponentCount: activity.subcomponentCount,
+    steps: exportData.steps
+      .filter(step => step.activityId === activity.id)
+      .map(step => ({
+        id: step.id,
+        name: step.stepName,
+        order: 0,
+        timePercent: step.timePercent,
+        subcomponents: exportData.subcomponents
+          .filter(sub => sub.stepId === step.id)
+          .map(sub => ({
+            id: sub.id,
+            name: sub.subcomponentName,
+            usageWeight: sub.frequencyPercent,
+            description: '',
+            hypothesis: '',
+            uncertainties: '',
+            alternatives: '',
+            developmentalPathway: '',
+            isReviewed: false
+          }))
+      })),
+    lastUpdated: new Date().toISOString()
+  }));
+};
+
+// Updated conversion function that uses export data
+export const convertActivityToResearchSteps = (activity: QRAActivityData, businessId: string, year: number): ResearchStep[] => {
+  // First try to load from QRA export data
+  const exportData = loadQRAExportData(businessId, year);
+  
+  if (exportData) {
+    const matchingActivity = exportData.researchActivities.find(a => a.id === activity.id || a.name === activity.name);
+    if (matchingActivity) {
+      return exportData.steps
+        .filter(step => step.activityId === matchingActivity.id)
+        .map(step => ({
+          id: step.id,
+          name: step.stepName,
+          timePercentage: step.timePercent,
+          subcomponents: exportData.subcomponents
+            .filter(sub => sub.stepId === step.id)
+            .map(sub => ({
+              id: sub.id,
+              name: sub.subcomponentName,
+              frequencyPercentage: sub.frequencyPercent,
+              description: '',
+              goal: '',
+              hypothesis: '',
+              uncertainties: '',
+              alternatives: '',
+              developmentalProcess: '',
+              notes: ''
+            }))
+        }));
+    }
+  }
+  
+  // Fallback to original localStorage method if no export data
+  console.warn('Falling back to localStorage method for activity:', activity.name);
+  
+  const simpleKey = `qra_${businessId}_${year}_${activity.name}`;
+  let qraData = localStorage.getItem(simpleKey);
+  
+  if (!qraData) {
+    // Search for complex keys
+    const allKeys = Object.keys(localStorage);
+    const matchingKey = allKeys.find(key => 
+      key.startsWith(`qra_${businessId}_${year}_`) && 
+      key.includes(activity.name)
+    );
+    
+    if (matchingKey) {
+      qraData = localStorage.getItem(matchingKey);
+      console.log('Found matching key for activity:', activity.name, 'key:', matchingKey);
+    }
+  }
+  
+  if (qraData) {
+    try {
+      const parsed = JSON.parse(qraData);
+      const selectedSubcomponents = parsed.selectedSubcomponents || {};
+      
+      // Group subcomponents by step
+      const stepsMap = new Map<string, ResearchStep>();
+      
+      Object.entries(selectedSubcomponents).forEach(([subId, subData]: [string, any]) => {
+        const stepName = subData.step || 'Default Step';
+        const stepId = `step_${stepName}`;
+        
+        if (!stepsMap.has(stepId)) {
+          stepsMap.set(stepId, {
+            id: stepId,
+            name: stepName,
+            timePercentage: 0, // Set to 0 as requested
+            subcomponents: []
+          });
+        }
+        
+        const step = stepsMap.get(stepId)!;
+        step.subcomponents.push({
+          id: subId,
+          name: subData.name || subId,
+          frequencyPercentage: 0 // Set to 0 as requested
+        });
+      });
+      
+      return Array.from(stepsMap.values());
+    } catch (error) {
+      console.error('Error parsing QRA data:', error);
+    }
+  }
+  
+  return [];
+};
+
+// Get all research activities from export data
+export const getResearchActivitiesFromExport = (businessId: string, year: number): QRAActivityData[] => {
+  const exportData = loadQRAExportData(businessId, year);
+  
+  if (exportData) {
+    return convertExportDataToResearchDesign(exportData);
+  }
+  
+  return [];
+};
+
+// Convert ResearchStep back to QRAStep format
+export const convertResearchStepsToActivity = (steps: ResearchStep[]): any[] => {
+  return steps.map((step, index) => ({
+    id: step.id,
+    name: step.name,
+    order: index,
+    timePercent: step.timePercentage,
+    subcomponents: step.subcomponents.map(sub => ({
+      id: sub.id,
+      name: sub.name,
+      usageWeight: sub.frequencyPercentage
+    }))
+  }));
+};
+
+// Create a new step
+export const createNewStep = (activityId: string, existingSteps: ResearchStep[]): ResearchStep => {
+  return {
+    id: `step_${Date.now()}`,
+    name: `New Step ${existingSteps.length + 1}`,
+    color: getNextStepColor(existingSteps),
+    timePercentage: 0,
+    subcomponents: [],
+    parentId: activityId
+  };
+};
+
+// Create a new subcomponent
+export const createNewSubcomponent = (stepId: string, existingSubcomponents: ResearchSubcomponent[]): ResearchSubcomponent => {
+  return {
+    id: `sub_${Date.now()}`,
+    name: `New Subcomponent ${existingSubcomponents.length + 1}`,
+    color: getNextSubcomponentColor(existingSubcomponents),
+    frequencyPercentage: 0,
+    parentId: stepId
+  };
+};
+
+// Validate time percentages
+export const validateTimePercentages = (steps: ResearchStep[]): { isValid: boolean; total: number } => {
+  const total = steps.reduce((sum, step) => sum + step.timePercentage, 0);
+  return { isValid: total === 100, total };
+};
+
+// Validate frequency percentages for a step
+export const validateFrequencyPercentages = (subcomponents: ResearchSubcomponent[]): { isValid: boolean; total: number } => {
+  const total = subcomponents.reduce((sum, sub) => sum + sub.frequencyPercentage, 0);
+  return { isValid: total === 100, total };
+};
+
+// Auto-distribute time percentages evenly
+export const autoDistributeTimePercentages = (steps: ResearchStep[]): ResearchStep[] => {
+  if (steps.length === 0) return steps;
+  
+  const equalPercentage = Math.round(100 / steps.length);
+  const remainder = 100 % steps.length;
+  
+  return steps.map((step, index) => ({
+    ...step,
+    timePercentage: equalPercentage + (index < remainder ? 1 : 0)
+  }));
+};
+
+// Auto-distribute frequency percentages evenly
+export const autoDistributeFrequencyPercentages = (subcomponents: ResearchSubcomponent[]): ResearchSubcomponent[] => {
+  if (subcomponents.length === 0) return subcomponents;
+  
+  const equalPercentage = Math.round(100 / subcomponents.length);
+  const remainder = 100 % subcomponents.length;
+  
+  return subcomponents.map((sub, index) => ({
+    ...sub,
+    frequencyPercentage: equalPercentage + (index < remainder ? 1 : 0)
+  }));
+};
+
+// Export research design data
+export const exportResearchDesign = (activityId: string, year: number, steps: ResearchStep[]) => {
+  const data = {
+    activityId,
+    year,
+    steps,
+    exportDate: new Date().toISOString(),
+    validation: {
+      timePercentages: validateTimePercentages(steps),
+      frequencyPercentages: steps.map(step => ({
+        stepId: step.id,
+        stepName: step.name,
+        ...validateFrequencyPercentages(step.subcomponents)
+      }))
+    }
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `research-design-${activityId}-${year}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// Import research design data
+export const importResearchDesign = (file: File): Promise<{ activityId: string; year: number; steps: ResearchStep[] }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (data.activityId && data.year && data.steps) {
+          resolve(data);
+        } else {
+          reject(new Error('Invalid research design file format'));
+        }
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}; 

@@ -26,13 +26,18 @@ import { activitiesDataService, ActivitiesTabData } from '../../services/activit
 import { approvalsService, TabApproval, approvalStorageService } from '../../services/approvals';
 import ResearchActivityCard from '../../components/ResearchActivityCard';
 import { Notification } from '../../components/Notification';
-import SimpleQRAModal, { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
+import SimpleQRAModal from '../../components/qra/SimpleQRAModal';
+import QRAExportPanel from '../../components/qra/QRAExportPanel';
 import Slider from '@mui/material/Slider';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SettingsIcon from '@mui/icons-material/Settings';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import { saveQRADataToSupabase, loadQRADataFromSupabase } from '../../services/qraDataService';
+import { QRABuilderService } from '../../services/qrabuilderService';
+import { SubcomponentSelectionData } from '../../types/QRABuilderInterfaces';
+import { getAllActivities } from '../../services/researchActivitiesService';
 
 // Enhanced color palette using bright, vibrant colors for cheerful activities
 const getQRAColor = (index: number): string => {
@@ -197,9 +202,44 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
     severity: 'success'
   });
 
+  // QRA data state to avoid async calls during rendering
+  const [qraDataCache, setQraDataCache] = useState<Record<string, SubcomponentSelectionData>>({});
+
+  // Load QRA data for all activities
+  const loadQRADataForAllActivities = useCallback(async () => {
+    if (activities.length === 0) {
+      console.log('No activities available yet, skipping QRA data load');
+      return;
+    }
+    
+    const newQraDataCache: Record<string, SubcomponentSelectionData> = {};
+    
+    for (const activity of activities) {
+      try {
+        const qraData = await getQRAData(activity.name);
+        if (qraData) {
+          newQraDataCache[activity.name] = qraData;
+        }
+      } catch (error) {
+        console.warn(`Error loading QRA data for ${activity.name}:`, error);
+      }
+    }
+    
+    setQraDataCache(newQraDataCache);
+  }, [selectedBusinessId, selectedYear, activities]);
+
+  // Load QRA data when activities change
+  useEffect(() => {
+    if (activities.length > 0) {
+      loadQRADataForAllActivities();
+    }
+  }, [selectedBusinessId, selectedYear, activities, loadQRADataForAllActivities]);
+
   // QRA Modal state
   const [qraModalOpen, setQRAModalOpen] = useState(false);
   const [selectedActivityForQRA, setSelectedActivityForQRA] = useState<string>('');
+  const [qraInitialData, setQraInitialData] = useState<SubcomponentSelectionData | null>(null);
+  const [loadingQRAInitialData, setLoadingQRAInitialData] = useState(false);
   
   // Practice percentage modal state
   const [practiceModalOpen, setPracticeModalOpen] = useState(false);
@@ -210,6 +250,11 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
   const [approvalData, setApprovalData] = useState<TabApproval | null>(null);
 
   const theme = useTheme();
+
+  // Normalize activity name lookup to prevent "Activity not found" errors
+  const normalizeActivityName = (name: string): string => {
+    return name.trim().toLowerCase();
+  };
 
   // Helper function to get approval key
   const getApprovalKey = () => `activitiesTabApproval-${selectedYear}`;
@@ -231,14 +276,17 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
   }, [selectedYear]);
 
   // Get or initialize QRA slider state for this business/year
-  const getQRASliderState = (): QRASliderState => {
+  const getQRASliderState = useCallback((): QRASliderState => {
     return selectedBusiness?.qraSliderByYear?.[selectedYear] || {};
-  };
-
-  // Update local QRA slider state for immediate UI updates
-  useEffect(() => {
-    setQRASliderState(getQRASliderState());
   }, [selectedBusiness, selectedYear]);
+
+  // Update local QRA slider state for immediate UI updates - only when business/year changes
+  useEffect(() => {
+    const savedState = selectedBusiness?.qraSliderByYear?.[selectedYear] || {};
+    if (Object.keys(savedState).length > 0) {
+      setQRASliderState(savedState);
+    }
+  }, [selectedBusinessId, selectedYear, selectedBusiness?.qraSliderByYear]); // Remove getQRASliderState dependency
 
   // Proportional adjustment system - redistributes percentages when changes occur
   const redistributePercentages = (changedActivityId: string, newValue: number, reason: 'activity' | 'nonrd') => {
@@ -307,25 +355,36 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       return;
     }
     
-         const newState = redistributePercentages(activityId, value, 'activity');
-     
-     // Update state and persist
-     setQRASliderState(newState);
-     
-     // Save to business data
-     setBusinesses(prev => prev.map(business => {
-       if (business.id === selectedBusinessId) {
-         return {
-           ...business,
-           qraSliderByYear: {
-             ...business.qraSliderByYear,
-             [selectedYear]: newState
-           }
-         };
-       }
-       return business;
-     }));
-   };
+    const newState = redistributePercentages(activityId, value, 'activity');
+    
+    // Update state and persist
+    setQRASliderState(newState);
+    
+    // Save to business data immediately
+    setBusinesses(prev => prev.map(business => {
+      if (business.id === selectedBusinessId) {
+        return {
+          ...business,
+          qraSliderByYear: {
+            ...business.qraSliderByYear,
+            [selectedYear]: newState
+          }
+        };
+      }
+      return business;
+    }));
+
+    // Also update the activity's practicePercent in the activities array
+    setActivities(prev => prev.map(activity => {
+      if (activity.id === activityId) {
+        return {
+          ...activity,
+          practicePercent: value
+        };
+      }
+      return activity;
+    }));
+  };
 
   // Get active activities (added QRAs)
   const getActiveActivities = () => {
@@ -818,28 +877,60 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
   // Toggle lock state for QRA slider
   const handleToggleLock = (activityId: string) => {
-    setQRASliderState(prev => ({
-      ...prev,
-      [activityId]: { 
-        ...prev[activityId], 
-        locked: !prev[activityId]?.locked 
-      }
-    }));
+    const activity = activities.find(a => a.id === activityId);
+    if (!activity) return;
+
+    const isCurrentlyLocked = qraSliderState[activityId]?.locked || false;
     
-    // Update business data
-    setBusinesses(bs => bs.map(b => {
-      if (b.id === selectedBusinessId) {
-        const qraSliderByYear = { ...(b.qraSliderByYear || {}) };
-        const yearState = { ...(qraSliderByYear[selectedYear] || {}) };
-        yearState[activityId] = { 
-          ...yearState[activityId], 
-          locked: !yearState[activityId]?.locked 
-        };
-        qraSliderByYear[selectedYear] = yearState;
-        return { ...b, qraSliderByYear };
-      }
-      return b;
-    }));
+    if (isCurrentlyLocked) {
+      // Unlocking - allow proportional adjustment
+      const newState = { ...qraSliderState };
+      newState[activityId] = {
+        value: qraSliderState[activityId]?.value || 0,
+        locked: false
+      };
+      
+      // Redistribute percentages among unlocked activities
+      const redistributedState = redistributePercentages(activityId, newState[activityId].value, 'activity');
+      setQRASliderState(redistributedState);
+      
+      // Save to business data
+      setBusinesses(prev => prev.map(business => {
+        if (business.id === selectedBusinessId) {
+          return {
+            ...business,
+            qraSliderByYear: {
+              ...business.qraSliderByYear,
+              [selectedYear]: redistributedState
+            }
+          };
+        }
+        return business;
+      }));
+    } else {
+      // Locking - prevent proportional adjustment
+      const newState = { ...qraSliderState };
+      newState[activityId] = {
+        value: qraSliderState[activityId]?.value || 0,
+        locked: true
+      };
+      
+      setQRASliderState(newState);
+      
+      // Save to business data
+      setBusinesses(prev => prev.map(business => {
+        if (business.id === selectedBusinessId) {
+          return {
+            ...business,
+            qraSliderByYear: {
+              ...business.qraSliderByYear,
+              [selectedYear]: newState
+            }
+          };
+        }
+        return business;
+      }));
+    }
   };
 
   const handleActiveChange = (activityId: string, checked: boolean) => {
@@ -959,7 +1050,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
     
     const cleanId = activity.id || 
-      `${cleanCategory}_${cleanArea}_${cleanFocus}_${cleanName}_${Date.now()}`;
+      `${cleanCategory}_${cleanArea}_${cleanFocus}_${cleanName}`;
 
     const newActivity: ActivityState = {
       id: cleanId,
@@ -997,7 +1088,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
     setQRASliderState(newQRAState);
 
-    // Update business data
+    // Update business data immediately
     setBusinesses(bs => bs.map(b => {
       if (b.id === selectedBusinessId) {
         const qraSliderByYear = { ...(b.qraSliderByYear || {}) };
@@ -1102,77 +1193,104 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
   };
 
   // Handle Configure Subcomponents for specific activity
-  const handleConfigureSubcomponents = (activityName: string) => {
+  const handleConfigureSubcomponents = async (activityName: string) => {
     setSelectedActivityForQRA(activityName);
-    setQRAModalOpen(true);
+    setLoadingQRAInitialData(true);
+    
+    try {
+      const initialData = await getQRAData(activityName);
+      setQraInitialData(initialData);
+    } catch (error) {
+      console.error('Error loading QRA initial data:', error);
+      setQraInitialData(null);
+    } finally {
+      setLoadingQRAInitialData(false);
+      setQRAModalOpen(true);
+    }
   };
 
-  // Handle QRA Modal completion
-  const handleQRAModalComplete = (data: SubcomponentSelectionData) => {
-    console.log('QRA Modal completed with data:', data);
-    
-    // Find the activity ID by the activity name
-    const activityToSave = activities.find(a => a.name === selectedActivityForQRA);
-    if (!activityToSave) {
-      console.error(`Could not find activity with name: ${selectedActivityForQRA}`);
-      return;
-    }
-    
-    // Save QRA data to localStorage with the expected key format (using activity ID)
-    const qraStorageKey = `qra_${selectedBusinessId}_${selectedYear}_${activityToSave.id}`;
-    localStorage.setItem(qraStorageKey, JSON.stringify(data));
-    console.log(`QRA data saved to localStorage with key: ${qraStorageKey}`);
-    
-    // Save the QRA data to the activity
-    setBusinesses(prev => prev.map(business => {
-      if (business.id === selectedBusinessId) {
-        const yearData = business.years?.[selectedYear] || { activities: {} };
-        return {
-          ...business,
-          years: {
-            ...business.years,
-            [selectedYear]: {
-              ...yearData,
-              qraData: {
-                ...(yearData as any)?.qraData,
-                [selectedActivityForQRA]: data
-              }
-            }
-          }
-        };
-    }
-      return business;
-    }));
+  // Enhanced getQRAData with better error handling
+  const getQRAData = async (activityName: string): Promise<SubcomponentSelectionData | null> => {
+    try {
+      // First check cache
+      if (qraDataCache[activityName]) {
+        return qraDataCache[activityName];
+      }
 
-    // Auto-lock the activity when QRA is completed
-    const activityToLock = activities.find(a => a.name === selectedActivityForQRA);
-    if (activityToLock) {
-      const newQRAState = {
-        ...qraSliderState,
-        [activityToLock.id]: {
-          ...qraSliderState[activityToLock.id],
-          locked: true
-        }
-      };
-      setQRASliderState(newQRAState);
+      // Ensure activities are loaded
+      if (!activities || activities.length === 0) {
+        console.warn('Activities not loaded yet, cannot lookup QRA data');
+        return null;
+      }
+
+      // Find the activity to get its ID - use normalized comparison
+      const normalizedName = normalizeActivityName(activityName);
+      const activity = activities.find(a => normalizeActivityName(a.name) === normalizedName);
       
-      // Update business data with locked state
-      setBusinesses(bs => bs.map(b => {
-        if (b.id === selectedBusinessId) {
-          const qraSliderByYear = { ...(b.qraSliderByYear || {}) };
-          qraSliderByYear[selectedYear] = newQRAState;
-          return { ...b, qraSliderByYear };
-        }
-        return b;
-      }));
-    }
+      if (!activity) {
+        console.warn(`Activity not found: ${activityName} (available: ${activities.map(a => a.name).join(', ')})`);
+        return null;
+      }
 
-    setQRAModalOpen(false);
-    setNotification({
-      open: true,
-      message: `Subcomponents configured for ${selectedActivityForQRA}`,
-      severity: 'success'
-    });
+      const activityId = activity.id;
+      
+      // Try to load from Supabase
+      const qraData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
+      
+      if (qraData) {
+        // Cache the result
+        setQraDataCache(prev => ({
+          ...prev,
+          [activityName]: qraData
+        }));
+        return qraData;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`Error loading QRA data for ${activityName}:`, error);
+      return null;
+    }
+  };
+
+  // Enhanced handleQRAModalComplete with better error handling
+  const handleQRAModalComplete = async (data: SubcomponentSelectionData) => {
+    if (!selectedActivityForQRA) return;
+
+    try {
+      // Find the activity to get its ID - use normalized comparison
+      const normalizedName = normalizeActivityName(selectedActivityForQRA);
+      const activity = activities.find(a => normalizeActivityName(a.name) === normalizedName);
+      
+      if (!activity) {
+        console.warn(`Activity not found: ${selectedActivityForQRA}`);
+        return;
+      }
+
+      const activityId = activity.id;
+      
+      // Save QRA data to Supabase
+      await QRABuilderService.saveQRAData(selectedBusinessId, selectedYear, activityId, selectedActivityForQRA, data);
+      
+      // Update local cache
+      setQraDataCache(prev => ({
+        ...prev,
+        [selectedActivityForQRA]: data
+      }));
+
+      setNotification({
+        open: true,
+        message: `QRA data saved successfully for ${selectedActivityForQRA}`,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error saving QRA data:', error);
+      setNotification({
+        open: true,
+        message: 'Failed to save QRA data. Please try again.',
+        severity: 'error'
+      });
+    }
   };
 
   const loadActivities = () => {
@@ -1210,47 +1328,38 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
     setActivities(prev => [...prev, demoActivity]);
   };
 
-  // Helper function to get QRA data for an activity
-  const getQRAData = (activityName: string): SubcomponentSelectionData | null => {
-    // Return null if activity name is empty or undefined
-    if (!activityName || activityName.trim() === "") {
-      return null;
-    }
-    // Find the activity ID by name
-    const activity = activities.find(a => a.name === activityName);
-    if (!activity) {
-      console.warn(`Could not find activity with name: ${activityName}`);
-      return null;
-    }
-    
-    // QRA data is stored in localStorage with keys like: qra_${businessId}_${year}_${activityId}
-    const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activity.id}`;
-    const storedData = localStorage.getItem(storageKey);
-    
-    if (storedData) {
-      try {
-        return JSON.parse(storedData);
-      } catch (error) {
-        console.warn(`Failed to parse QRA data for ${activityName} (ID: ${activity.id}):`, error);
-        return null;
-      }
-    }
-    
-    // Fallback: check business state (legacy)
-    const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
-    const yearData = selectedBusiness?.years?.[selectedYear];
-    return (yearData as any)?.qraData?.[activityName] || null;
+  // Handle unapproval
+  const handleUnapprove = () => {
+    approvalsService.removeApproval('activities', selectedYear);
+    setApprovalData(null);
+    setIsApproved(false);
   };
+
+  // Load QRA data when activities are set from initial data
+  useEffect(() => {
+    if (activities.length > 0 && selectedBusinessId && selectedYear) {
+      loadQRADataForAllActivities();
+    }
+  }, [activities, selectedBusinessId, selectedYear, loadQRADataForAllActivities]);
+
+  // Add loading guard to prevent activity lookup errors
+  if (loadingActivities || !masterActivities || masterActivities.length === 0) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   // Helper function to get subcomponent count for an activity
   const getSubcomponentCount = (activityName: string): number => {
-    const qraData = getQRAData(activityName);
-    return qraData ? Object.keys(qraData.selectedSubcomponents).length : 0;
+    const qraData = qraDataCache[activityName];
+    return qraData && qraData.selectedSubcomponents ? Object.keys(qraData.selectedSubcomponents).length : 0;
   };
 
   // Helper function to get applied percentage for an activity
   const getAppliedPercentage = (activityName: string): number => {
-    const qraData = getQRAData(activityName);
+    const qraData = qraDataCache[activityName];
     if (!qraData) return 0;
     
     // Applied percentage is directly from the QRA data totalAppliedPercent
@@ -1260,8 +1369,8 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
   // Helper function to check if QRA is completed for an activity
   const isQRACompleted = (activityName: string): boolean => {
-    const qraData = getQRAData(activityName);
-    return qraData !== null && Object.keys(qraData.selectedSubcomponents).length > 0;
+    const qraData = qraDataCache[activityName];
+    return qraData !== null && qraData !== undefined && qraData.selectedSubcomponents && Object.keys(qraData.selectedSubcomponents).length > 0;
   };
 
   // Handle practice percentage modal
@@ -1309,17 +1418,6 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       console.error('Error getting IP address:', error);
     }
   };
-
-  // Handle unapproval
-  const handleUnapprove = () => {
-    approvalsService.removeApproval('activities', selectedYear);
-    setApprovalData(null);
-    setIsApproved(false);
-  };
-
-  if (loadingActivities) {
-    return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>;
-  }
 
   return (
     <Box>
@@ -1370,15 +1468,8 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
               })}
               getCurrentRolesData={() => roles}
               getCurrentQRAData={() => {
-                // Get QRA data from localStorage for all activities
-                const qraData: Record<string, any> = {};
-                activities.forEach(activity => {
-                  const data = getQRAData(activity.name);
-                  if (data) {
-                    qraData[activity.name] = data;
-                  }
-                });
-                return qraData;
+                // Return QRA data from cache for all activities
+                return qraDataCache;
               }}
               onTemplateApplied={(template) => {
                 // Clear any existing approvals since we're applying new data
@@ -1469,19 +1560,38 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
                   return b;
                 }));
               }}
-              updateQRAData={(qraData) => {
-                // Apply QRA data to localStorage for each activity
-                Object.entries(qraData).forEach(([activityName, data]) => {
+              updateQRAData={async (qraData) => {
+                // Apply QRA data to Supabase for each activity
+                for (const [activityName, data] of Object.entries(qraData)) {
                   // Find the activity ID by name
                   const activity = activities.find(a => a.name === activityName);
                   if (activity) {
-                    const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activity.id}`;
-                    localStorage.setItem(storageKey, JSON.stringify(data));
-                    console.log(`Applied QRA data for activity "${activityName}" with ID "${activity.id}"`);
+                    try {
+                      const success = await saveQRADataToSupabase(selectedBusinessId, selectedYear, activity.id, data);
+                      if (success) {
+                        console.log(`Applied QRA data to Supabase for activity "${activityName}" with ID "${activity.id}"`);
+                      } else {
+                        console.warn(`Failed to save QRA data to Supabase for activity "${activityName}", falling back to localStorage`);
+                        // Fallback to localStorage
+                        const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activity.id}`;
+                        localStorage.setItem(storageKey, JSON.stringify(data));
+                      }
+                    } catch (error) {
+                      console.error(`Error saving QRA data to Supabase for activity "${activityName}":`, error);
+                      // Fallback to localStorage
+                      const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activity.id}`;
+                      localStorage.setItem(storageKey, JSON.stringify(data));
+                    }
                   } else {
                     console.warn(`Could not find activity with name "${activityName}" to apply QRA data`);
                   }
-                });
+                }
+                
+                // Update the QRA data cache
+                setQraDataCache(prev => ({
+                  ...prev,
+                  ...qraData
+                }));
                 
                 // Also update the business state for consistency
                 setBusinesses(prevBusinesses => prevBusinesses.map(b => {
@@ -1677,7 +1787,13 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
                     )}
                     
                     {/* Lock icon with updated color for completed QRA */}
-                    <Tooltip title={qraSliderState[activity.id]?.locked ? 'Locked' : 'Unlocked'}>
+                    <Tooltip title={
+                      qraSliderState[activity.id]?.locked 
+                        ? 'Unlock activity (allows changes)' 
+                        : isQRACompleted(activity.name)
+                          ? 'Lock activity (prevents changes)'
+                          : 'Configure activity first to enable locking'
+                    }>
                       <IconButton 
                         size="small" 
                         onClick={() => handleToggleLock(activity.id)}
@@ -2118,7 +2234,12 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
         </Accordion>
       )}
       
-
+      {/* QRA Export Panel */}
+      <QRAExportPanel
+        businessId={selectedBusinessId}
+        businessName={selectedBusiness?.businessName || 'Unknown Business'}
+        year={selectedYear}
+      />
       
       <Dialog open={nonRDModalOpen} onClose={() => setNonRDModalOpen(false)}>
         <DialogTitle>Modify Non-R&D Time</DialogTitle>
@@ -2313,7 +2434,14 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
             allRoles.find(role => role.id === roleId)?.name || roleId
           ) || []
         }
-        initialData={selectedActivityForQRA ? getQRAData(selectedActivityForQRA) : null}
+        initialData={qraInitialData}
+        isActivityLocked={(() => {
+          if (!selectedActivityForQRA) return false;
+          const activity = activities.find(a => a.name === selectedActivityForQRA);
+          if (!activity) return false;
+          const isLocked = qraSliderState[activity.id]?.locked || false;
+          return isLocked;
+        })()}
       />
 
       {/* Notification */}

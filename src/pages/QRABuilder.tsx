@@ -66,6 +66,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SaveIcon from '@mui/icons-material/Save';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import LockIcon from '@mui/icons-material/Lock';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 // Custom Components
 import Accordion from '@mui/material/Accordion';
@@ -80,13 +81,12 @@ import { YearData } from '../types/YearData';
 
 // Utils
 import { loadQRASelections, saveQRASelections } from '../utils/qraSelections';
-import { parseResearchApiCsv } from '../utils/parseResearchApi';
 
 import IdentifyActivitiesTab from './QRABuilderTabs/IdentifyActivitiesTab';
 import IdentifyRolesTab from './QRABuilderTabs/IdentifyRolesTab';
 import RDExpensesTab from './QRABuilderTabs/RDExpensesTab';
 import { approvalsService, ExportDataset, approvalStorageService } from '../services/approvals';
-import { getAllActivities } from '../services/researchActivitiesService';
+import { getAllActivities, clearActivitiesLocalStorage, clearAllLocalStorage } from '../services/researchActivitiesService';
 
 interface QRABuilderProps {
   selectedYear: number;
@@ -125,25 +125,20 @@ const QRABuilder: React.FC<QRABuilderProps> = ({
     setActiveTab(newValue);
   };
 
-  // Handle tab approval changes
-  const handleTabApprovalChange = (tabId: string, isApproved: boolean, approvalData: any) => {
-    if (isApproved) {
-      approvalsService.recordApproval(tabId, approvalData);
-    } else {
-      approvalsService.removeApproval(tabId);
+  // Function to clear localStorage and reload activities
+  const handleClearAndReload = async () => {
+    try {
+      console.log('Clearing localStorage and reloading activities...');
+      clearAllLocalStorage();
+      setLoadingActivities(true);
+      const data = await getAllActivities();
+      setMasterActivities(data);
+      setLoadingActivities(false);
+      console.log('Successfully cleared localStorage and reloaded activities');
+    } catch (error) {
+      console.error('Error clearing and reloading:', error);
+      setLoadingActivities(false);
     }
-    checkAllTabsApproved();
-  };
-
-  // Check if all tabs are approved (from localStorage)
-  const checkAllTabsApproved = () => {
-    const requiredTabs = [
-      'roles',
-      'activities',
-      'expenses',
-    ];
-    const allApproved = requiredTabs.every(tabKey => getTabApproved(tabKey, selectedYear));
-    setIsFullyApproved(allApproved);
   };
 
   // Check approval status for all tabs
@@ -201,6 +196,22 @@ const QRABuilder: React.FC<QRABuilderProps> = ({
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 4 }}>
+      {/* Header with clear/reload button */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4" component="h1">
+          QRA Builder
+        </Typography>
+        <Button
+          variant="outlined"
+          color="warning"
+          onClick={handleClearAndReload}
+          disabled={loadingActivities}
+          startIcon={<RefreshIcon />}
+        >
+          {loadingActivities ? 'Reloading...' : 'Clear Cache & Reload'}
+        </Button>
+      </Box>
+
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange}>
@@ -289,20 +300,6 @@ const QRABuilder: React.FC<QRABuilderProps> = ({
             onEdit={onEdit}
           />
         )}
-      </Box>
-
-      {/* Final approval and export button */}
-      <Box sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
-        <Button
-          variant="contained"
-          color="success"
-          size="large"
-          disabled={!isFullyApproved}
-          onClick={handleFinalApproval}
-          startIcon={<FileDownloadIcon />}
-        >
-          Export Dataset
-        </Button>
       </Box>
     </Box>
   );

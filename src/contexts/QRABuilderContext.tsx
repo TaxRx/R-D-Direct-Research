@@ -7,7 +7,7 @@ import { Business, RoleNode, Role } from '../types/Business';
 import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, EMPTY_SUPPLY_FORM, NON_RD_ROLE, OTHER_ROLE } from '../types/Employee';
 import { ExpensesService } from '../services/expensesService';
 import { approvalsService } from '../services/approvals';
-import { SubcomponentSelectionData } from '../components/qra/SimpleQRAModal';
+import { SubcomponentSelectionData } from '../types/QRABuilderInterfaces';
 import { formatCurrencyInput, parseCurrencyInput } from '../utils/currencyFormatting';
 import { flattenAllRoles, getRoleName } from '../pages/QRABuilderTabs/RDExpensesTab/utils/roleHelpers';
 import { 
@@ -24,6 +24,8 @@ import {
   SupplyEventHandlers,
   UtilityEventHandlers
 } from '../types/QRABuilderInterfaces';
+import { loadQRADataFromSupabase } from '../services/qraDataService';
+import { QRABuilderService } from '../services/qrabuilderService';
 
 // ============================================================================
 // CONTEXT CREATION
@@ -116,6 +118,11 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
     selectedSubcomponents: {}
   });
   
+  // Selected items for configuration
+  const [selectedEmployeeForConfig, setSelectedEmployeeForConfig] = useState<Employee | null>(null);
+  const [selectedContractorForConfig, setSelectedContractorForConfig] = useState<Contractor | null>(null);
+  const [selectedSupplyForConfig, setSelectedSupplyForConfig] = useState<Supply | null>(null);
+  
   // ============================================================================
   // COMPUTED VALUES
   // ============================================================================
@@ -165,61 +172,93 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
   // ============================================================================
   
   // Calculate role applied percentages from activities
-  const calculateRoleAppliedPercentages = useCallback((
-    roles: RoleNode[],
-    selectedBusinessId: string,
-    selectedYear: number
-  ): Role[] => {
-    // First, flatten the hierarchical role structure to get all roles including children
-    const allRoles = flattenAllRoles(roles);
-    
-    // Get QRA data for all activities
-    const getQRAData = (activityName: string) => {
-      try {
-        const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
-        return qraData ? JSON.parse(qraData) : null;
-      } catch (error) {
-        console.error('Error loading QRA data:', error);
-        return null;
-      }
-    };
+  const calculateRoleAppliedPercentages = useCallback(() => {
+    try {
+      // Get business data to find activities and their role assignments
+      const STORAGE_KEY = 'businessInfoData';
+      const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+      const activities = business?.years?.[selectedYear]?.activities || {};
 
-    // Get business data to find activities and their role assignments
-    const STORAGE_KEY = 'businessInfoData';
-    const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
-    const activities = business?.years?.[selectedYear]?.activities || {};
+      // Local function to get QRA data (synchronous from cache)
+      const getQRADataSync = (activityName: string) => {
+        try {
+          // Find activity ID by name
+          const activityEntry = Object.entries(activities).find(([id, activity]: [string, any]) => 
+            activity.name === activityName
+          );
+          
+          if (!activityEntry) {
+            return null;
+          }
+          
+          const activityId = activityEntry[0];
+          
+          // Try localStorage first (synchronous)
+          const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityId}`);
+          return qraData ? JSON.parse(qraData) : null;
+        } catch (error) {
+          return null;
+        }
+      };
 
-    // Calculate applied percentage for each role
-    return allRoles.map(role => {
-      let totalAppliedPercentage = 0;
-      let activityCount = 0;
+      // Calculate applied percentage for each role
+      const roleResults = [];
+      for (const role of businessRoles) {
+        let totalAppliedPercentage = 0;
+        let activityCount = 0;
 
-      // Find all activities that this role participates in
-      Object.values(activities).forEach((activity: any) => {
-        if (activity.selectedRoles && activity.selectedRoles.includes(role.id)) {
-          // Get the applied percentage from QRA data for this activity
-          const qraData = getQRAData(activity.name);
-          if (qraData && qraData.totalAppliedPercent) {
-            totalAppliedPercentage += qraData.totalAppliedPercent;
-            activityCount++;
+        // Find all activities that this role participates in
+        for (const activity of Object.values(activities) as any[]) {
+          if (activity.selectedRoles && activity.selectedRoles.includes(role.id)) {
+            // Get the applied percentage from QRA data for this activity
+            const qraData = getQRADataSync(activity.name);
+            if (qraData && qraData.totalAppliedPercent) {
+              totalAppliedPercentage += qraData.totalAppliedPercent;
+              activityCount++;
+            }
           }
         }
-      });
 
-      // Average the applied percentages across all activities this role participates in
-      const appliedPercentage = activityCount > 0 ? totalAppliedPercentage / activityCount : 0;
+        // Average the applied percentages across all activities this role participates in
+        const appliedPercentage = activityCount > 0 ? totalAppliedPercentage / activityCount : 0;
 
-      return {
-        ...role,
-        appliedPercentage: Math.round(appliedPercentage * 100) / 100 // Round to 2 decimal places
-      };
-    });
-  }, []);
+        roleResults.push({
+          ...role,
+          appliedPercentage: Math.round(appliedPercentage * 100) / 100 // Round to 2 decimal places
+        });
+      }
+      
+      return roleResults;
+    } catch (error) {
+      console.error('Error calculating role applied percentages:', error);
+      return businessRoles.map(role => ({ ...role, appliedPercentage: 0 }));
+    }
+  }, [selectedBusinessId, selectedYear, businessRoles]);
   
   const getQRAData = useCallback((activityName: string): SubcomponentSelectionData | null => {
     try {
-      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
+      // Find the activity ID by name first
+      const STORAGE_KEY = 'businessInfoData';
+      const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+      const yearData = business?.years?.[selectedYear];
+      const activities = yearData?.activities || {};
+      
+      // Find activity ID by name
+      const activityEntry = Object.entries(activities).find(([id, activity]: [string, any]) => 
+        activity.name === activityName
+      );
+      
+      if (!activityEntry) {
+        console.warn(`Could not find activity with name: ${activityName}`);
+        return null;
+      }
+      
+      const activityId = activityEntry[0];
+      
+      // Try localStorage (synchronous)
+      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityId}`);
       return qraData ? JSON.parse(qraData) : null;
     } catch (error) {
       console.error('Error loading QRA data:', error);
@@ -342,6 +381,8 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
   }, [getQRAData]);
   
   const calculateSupplyAppliedPercentage = useCallback((supply: Supply): number => {
+    // For supplies, we need to get the activity name from the supply configuration
+    // Since Supply doesn't have activityName, we'll use a default calculation
     const activities = getSupplyActivities();
     let totalApplied = 0;
     
@@ -582,39 +623,43 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
   
   // Modal handlers
   const handleOpenConfigureModal = useCallback((employee: Employee) => {
-    const activities = getEmployeeActivities(employee);
-    const practicePercentages: Record<string, number> = {};
-    const timePercentages: Record<string, Record<string, number>> = {};
-    
-    activities.forEach(activity => {
-      practicePercentages[activity.name] = employee.customPracticePercentages?.[activity.name] || activity.currentPracticePercent || 0;
-      timePercentages[activity.name] = employee.customTimePercentages?.[activity.name] || {};
-    });
-    
-    setEmployeeModalState({
+    setSelectedEmployeeForConfig(employee);
+    setEmployeeModalState(prev => ({
+      ...prev,
       isOpen: true,
       selectedEmployee: employee,
-      practicePercentages,
-      timePercentages
-    });
-  }, [getEmployeeActivities]);
-  
-  const handleCloseConfigureModal = useCallback(() => {
-    setEmployeeModalState(prev => ({ ...prev, isOpen: false, selectedEmployee: null }));
+      practicePercentages: employee.customPracticePercentages || {},
+      timePercentages: employee.customTimePercentages || {}
+    }));
   }, []);
   
-  const handleSaveEmployeeConfiguration = useCallback(() => {
-    if (!employeeModalState.selectedEmployee) return;
+  const handleCloseConfigureModal = useCallback(() => {
+    setSelectedEmployeeForConfig(null);
+    setEmployeeModalState(prev => ({
+      ...prev,
+      isOpen: false,
+      selectedEmployee: null,
+      practicePercentages: {},
+      timePercentages: {}
+    }));
+  }, []);
+  
+  const handleSaveEmployeeConfiguration = () => {
+    if (!selectedEmployeeForConfig) return;
+
+    const activities = getEmployeeActivities(selectedEmployeeForConfig);
+    const appliedPercentage = calculateEmployeeAppliedPercentage(selectedEmployeeForConfig, activities);
+    const appliedAmount = (appliedPercentage / 100) * selectedEmployeeForConfig.wage;
     
-    const updatedEmployee = {
-      ...employeeModalState.selectedEmployee,
+    const updatedEmployee: Employee = {
+      ...selectedEmployeeForConfig,
       customPracticePercentages: employeeModalState.practicePercentages,
       customTimePercentages: employeeModalState.timePercentages,
-      appliedPercentage: calculateEmployeeAppliedPercentage(
-        employeeModalState.selectedEmployee,
-        getEmployeeActivities(employeeModalState.selectedEmployee)
-      ),
-      updatedAt: new Date().toISOString()
+      appliedAmount: appliedAmount,
+      appliedPercentage: appliedPercentage,
+      isActive: true,
+      isLocked: false,
+      createdAt: new Date().toISOString(),
     };
     
     // Recalculate applied amount
@@ -623,42 +668,46 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
     ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
     setEmployees(prev => prev.map(e => e.id === updatedEmployee.id ? updatedEmployee : e));
     handleCloseConfigureModal();
-  }, [employeeModalState, selectedBusinessId, selectedYear, calculateEmployeeAppliedPercentage, getEmployeeActivities, handleCloseConfigureModal]);
+  };
   
   const handleOpenContractorConfigureModal = useCallback((contractor: Contractor) => {
-    const activities = getContractorActivities(contractor);
-    const practicePercentages: Record<string, number> = {};
-    const timePercentages: Record<string, Record<string, number>> = {};
-    
-    activities.forEach(activity => {
-      practicePercentages[activity.name] = contractor.customPracticePercentages?.[activity.name] || activity.currentPracticePercent || 0;
-      timePercentages[activity.name] = contractor.customTimePercentages?.[activity.name] || {};
-    });
-    
-    setContractorModalState({
+    setSelectedContractorForConfig(contractor);
+    setContractorModalState(prev => ({
+      ...prev,
       isOpen: true,
       selectedContractor: contractor,
-      practicePercentages,
-      timePercentages
-    });
-  }, [getContractorActivities]);
-  
-  const handleCloseContractorConfigureModal = useCallback(() => {
-    setContractorModalState(prev => ({ ...prev, isOpen: false, selectedContractor: null }));
+      practicePercentages: contractor.customPracticePercentages || {},
+      timePercentages: contractor.customTimePercentages || {}
+    }));
   }, []);
   
-  const handleSaveContractorConfiguration = useCallback(() => {
-    if (!contractorModalState.selectedContractor) return;
+  const handleCloseContractorConfigureModal = useCallback(() => {
+    setSelectedContractorForConfig(null);
+    setContractorModalState(prev => ({
+      ...prev,
+      isOpen: false,
+      selectedContractor: null,
+      practicePercentages: {},
+      timePercentages: {}
+    }));
+  }, []);
+  
+  const handleSaveContractorConfiguration = () => {
+    if (!selectedContractorForConfig) return;
+
+    const activities = getContractorActivities(selectedContractorForConfig);
+    const appliedPercentage = calculateContractorAppliedPercentage(selectedContractorForConfig, activities);
+    const appliedAmount = (appliedPercentage / 100) * selectedContractorForConfig.totalAmount * 0.65;
     
-    const updatedContractor = {
-      ...contractorModalState.selectedContractor,
+    const updatedContractor: Contractor = {
+      ...selectedContractorForConfig,
       customPracticePercentages: contractorModalState.practicePercentages,
       customTimePercentages: contractorModalState.timePercentages,
-      appliedPercentage: calculateContractorAppliedPercentage(
-        contractorModalState.selectedContractor,
-        getContractorActivities(contractorModalState.selectedContractor)
-      ),
-      updatedAt: new Date().toISOString()
+      appliedAmount: appliedAmount,
+      appliedPercentage: appliedPercentage,
+      isActive: true,
+      isLocked: false,
+      createdAt: new Date().toISOString(),
     };
     
     // Recalculate applied amount
@@ -667,53 +716,48 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
     ExpensesService.saveContractor(selectedBusinessId, selectedYear, updatedContractor);
     setContractors(prev => prev.map(c => c.id === updatedContractor.id ? updatedContractor : c));
     handleCloseContractorConfigureModal();
-  }, [contractorModalState, selectedBusinessId, selectedYear, calculateContractorAppliedPercentage, getContractorActivities, handleCloseContractorConfigureModal]);
+  };
   
   const handleOpenSupplyConfigureModal = useCallback((supply: Supply) => {
-    const activities = getSupplyActivities();
-    const activityPercentages: Record<string, number> = {};
-    const subcomponentPercentages: Record<string, Record<string, number>> = {};
-    const selectedSubcomponents: Record<string, string[]> = {};
-    
-    activities.forEach((activity: any) => {
-      activityPercentages[activity.name] = supply.customActivityPercentages?.[activity.name] || 0;
-      subcomponentPercentages[activity.name] = supply.customSubcomponentPercentages?.[activity.name] || {};
-      
-      // Load selected subcomponents from supply object if available, otherwise derive from percentages
-      if (supply.selectedSubcomponents && supply.selectedSubcomponents[activity.name]) {
-        selectedSubcomponents[activity.name] = [...supply.selectedSubcomponents[activity.name]];
-      } else if (supply.customSubcomponentPercentages && supply.customSubcomponentPercentages[activity.name]) {
-        // Fallback: derive selected subcomponents from percentages (backward compatibility)
-        selectedSubcomponents[activity.name] = Object.keys(supply.customSubcomponentPercentages[activity.name])
-          .filter(subId => supply.customSubcomponentPercentages![activity.name][subId] > 0);
-      } else {
-        selectedSubcomponents[activity.name] = [];
-      }
-    });
-    
-    setSupplyModalState({
+    setSelectedSupplyForConfig(supply);
+    setSupplyModalState(prev => ({
+      ...prev,
       isOpen: true,
       selectedSupply: supply,
-      activityPercentages,
-      subcomponentPercentages,
-      selectedSubcomponents
-    });
-  }, [getSupplyActivities]);
-  
-  const handleCloseSupplyConfigureModal = useCallback(() => {
-    setSupplyModalState(prev => ({ ...prev, isOpen: false, selectedSupply: null }));
+      activityPercentages: supply.customActivityPercentages || {},
+      subcomponentPercentages: supply.customSubcomponentPercentages || {},
+      selectedSubcomponents: supply.selectedSubcomponents || {}
+    }));
   }, []);
   
-  const handleSaveSupplyConfiguration = useCallback(() => {
-    if (!supplyModalState.selectedSupply) return;
+  const handleCloseSupplyConfigureModal = useCallback(() => {
+    setSelectedSupplyForConfig(null);
+    setSupplyModalState(prev => ({
+      ...prev,
+      isOpen: false,
+      selectedSupply: null,
+      activityPercentages: {},
+      subcomponentPercentages: {},
+      selectedSubcomponents: {}
+    }));
+  }, []);
+  
+  const handleSaveSupplyConfiguration = () => {
+    if (!selectedSupplyForConfig) return;
+
+    const appliedPercentage = calculateSupplyAppliedPercentage(selectedSupplyForConfig);
+    const appliedAmount = (appliedPercentage / 100) * selectedSupplyForConfig.totalValue;
     
-    const updatedSupply = {
-      ...supplyModalState.selectedSupply,
+    const updatedSupply: Supply = {
+      ...selectedSupplyForConfig,
       customActivityPercentages: supplyModalState.activityPercentages,
       customSubcomponentPercentages: supplyModalState.subcomponentPercentages,
       selectedSubcomponents: supplyModalState.selectedSubcomponents,
-      appliedPercentage: calculateSupplyAppliedPercentage(supplyModalState.selectedSupply),
-      updatedAt: new Date().toISOString()
+      appliedAmount: appliedAmount,
+      appliedPercentage: appliedPercentage,
+      isActive: true,
+      isLocked: false,
+      createdAt: new Date().toISOString(),
     };
     
     // Recalculate applied amount
@@ -722,7 +766,7 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
     ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
     setSupplies(prev => prev.map(s => s.id === updatedSupply.id ? updatedSupply : s));
     handleCloseSupplyConfigureModal();
-  }, [supplyModalState, selectedBusinessId, selectedYear, calculateSupplyAppliedPercentage, handleCloseSupplyConfigureModal]);
+  };
   
   // Supply-specific handlers
   const handleSubcomponentToggle = useCallback((activityName: string, subcomponentId: string) => {
@@ -819,18 +863,16 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
   // ============================================================================
   
   const loadEmployees = useCallback(() => {
-    const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
-    
-    // Update employees with calculated applied percentages
-    const updatedEmployees = employeeData.map(employee => {
+    const employees = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
+    const updatedEmployees = employees.map(employee => {
       const activities = getEmployeeActivities(employee);
       const appliedPercentage = calculateEmployeeAppliedPercentage(employee, activities);
       const appliedAmount = (appliedPercentage / 100) * employee.wage;
       
       return {
         ...employee,
-        appliedPercentage,
-        appliedAmount
+        appliedPercentage: appliedPercentage,
+        appliedAmount: appliedAmount
       };
     });
     
@@ -866,10 +908,10 @@ export const QRABuilderProvider: React.FC<QRABuilderProviderProps> = ({
     }
   }, [selectedBusinessId, selectedYear, isActivitiesApproved, loadEmployees, loadContractors, loadSupplies, loadAvailableYears]);
   
-  // Update roles when business roles change
+  // Update roles with applied percentages when activities are approved
   useEffect(() => {
     if (businessRoles.length > 0) {
-      const rolesWithAppliedPercentages = calculateRoleAppliedPercentages(businessRoles, selectedBusinessId, selectedYear);
+      const rolesWithAppliedPercentages = calculateRoleAppliedPercentages();
       setRoles(rolesWithAppliedPercentages);
     }
   }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles, calculateRoleAppliedPercentages]);

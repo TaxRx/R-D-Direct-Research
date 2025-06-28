@@ -27,6 +27,7 @@ import {
   Build as BuildIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  AdminPanelSettings as AdminIcon
 } from '@mui/icons-material';
 import { Business } from '../types/Business';
 import AddIcon from '@mui/icons-material/Add';
@@ -38,9 +39,8 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 const drawerWidth = 240;
 
 const menuItems = [
-  { text: 'Business Info', icon: <BusinessIcon />, path: '/' },
+  { text: 'Business Info', icon: <BusinessIcon />, path: '/business-info' },
   { text: 'R&D Activities', icon: <BuildIcon />, path: '/qra-builder' },
-  { text: 'R&D Expenses', icon: <CalculateIcon />, path: '/qre-calculator' },
   { text: 'Reports', icon: <CalculateIcon />, path: '/reports' },
 ];
 
@@ -53,9 +53,10 @@ interface LayoutProps {
   selectedYear: number;
   setSelectedYear: React.Dispatch<React.SetStateAction<number>>;
   onApprovalStatusChange?: (year: number, isFullyApproved: boolean) => void;
+  onEnterAdminMode?: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessId, setBusinesses, setSelectedBusinessId, selectedYear, setSelectedYear, onApprovalStatusChange }) => {
+const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessId, setBusinesses, setSelectedBusinessId, selectedYear, setSelectedYear, onApprovalStatusChange, onEnterAdminMode }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [completedSteps, setCompletedSteps] = useState<boolean[]>([false, false, false, false]);
@@ -66,8 +67,7 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
   const isStepAccessible = (index: number) => {
     if (index === 0) return true;
     if (index === 1) return completedSteps[0]; // R&D Activities requires Business Info
-    if (index === 2) return approvedActivityYears.has(selectedYear); // R&D Expenses requires approved activities for selected year
-    if (index === 3) return completedSteps[2]; // Reports requires R&D Expenses
+    if (index === 2) return completedSteps[1]; // Reports requires R&D Activities to be complete
     return completedSteps.slice(0, index).every(step => step);
   };
 
@@ -114,6 +114,13 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
         ownership: { isApproved: false, approvedAt: '', approvedBy: '' },
         financial: { isApproved: false, approvedAt: '', approvedBy: '' }
       },
+      // Contact information
+      mailingStreetAddress: '',
+      mailingCity: '',
+      mailingState: '',
+      mailingZip: '',
+      website: '',
+      phoneNumber: '',
       rolesByYear: {},
       years: {}
     };
@@ -124,7 +131,8 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
   const deleteBusiness = (id: string) => {
     setBusinesses(businesses.filter(b => b.id !== id));
     if (selectedBusinessId === id) {
-      setSelectedBusinessId(businesses[0]?.id || '');
+      const remainingBusinesses = businesses.filter(b => b.id !== id);
+      setSelectedBusinessId(remainingBusinesses[0]?.id || '');
     }
   };
 
@@ -174,7 +182,7 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
           <FormControl sx={{ minWidth: 220, mr: 2 }} size="small">
             <InputLabel sx={{ color: 'white' }}>Select Business</InputLabel>
             <Select
-              value={selectedBusinessId}
+              value={selectedBusinessId || ''}
               onChange={handleBusinessSelect}
               label="Select Business"
               sx={{
@@ -202,7 +210,7 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
               <AddIcon />
             </Fab>
           </Tooltip>
-          {businesses.length > 1 && (
+          {businesses.length > 1 && selectedBusinessId && (
             <Tooltip title="Delete Business">
               <Fab
                 size="small"
@@ -218,7 +226,7 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
             <FormControl sx={{ minWidth: 120, ml: 2 }} size="small">
               <InputLabel sx={{ color: 'white' }}>Year</InputLabel>
               <Select
-                value={selectedYear}
+                value={selectedYear || new Date().getFullYear()}
                 onChange={e => setSelectedYear(Number(e.target.value))}
                 label="Year"
                 sx={{
@@ -247,6 +255,19 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
               </Select>
             </FormControl>
           )}
+          {/* Admin Button */}
+          {onEnterAdminMode && (
+            <Tooltip title="Admin Dashboard">
+              <Fab
+                size="small"
+                color="warning"
+                onClick={onEnterAdminMode}
+                sx={{ ml: 2 }}
+              >
+                <AdminIcon />
+              </Fab>
+            </Tooltip>
+          )}
         </Toolbar>
       </AppBar>
       <Drawer
@@ -267,11 +288,11 @@ const Layout: React.FC<LayoutProps> = ({ children, businesses, selectedBusinessI
               <React.Fragment key={item.text}>
                 <ListItem disablePadding>
                   <ListItemButton
-                    onClick={() => isStepAccessible(index) && navigate(item.path)}
+                    onClick={() => (item.text === 'Reports' ? navigate(item.path) : isStepAccessible(index) && navigate(item.path))}
                     selected={location.pathname === item.path}
-                    disabled={!isStepAccessible(index)}
+                    disabled={item.text === 'Reports' ? false : !isStepAccessible(index)}
                     sx={{ 
-                      opacity: isStepAccessible(index) ? 1 : 0.5,
+                      opacity: item.text === 'Reports' ? 1 : isStepAccessible(index) ? 1 : 0.5,
                       '&.Mui-selected': {
                         backgroundColor: 'rgba(25, 118, 210, 0.08)',
                       },

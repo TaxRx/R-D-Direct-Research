@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -11,10 +11,16 @@ import {
   Slider,
   Card,
   Chip,
-  Tooltip
+  Tooltip,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Collapse
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
-import { Supply } from '../../../types/Employee';
+import { Close as CloseIcon, Edit as EditIcon } from '@mui/icons-material';
+import { Supply, SUPPLY_CATEGORIES } from '../../../types/Employee';
 import { formatCurrency } from '../../../utils/currencyFormatting';
 
 interface SupplyConfigureModalProps {
@@ -35,6 +41,7 @@ interface SupplyConfigureModalProps {
   getSubcomponentPercentage: (activityName: string, subcomponentId: string) => number;
   isSubcomponentSelected: (activityName: string, subcomponentId: string) => boolean;
   getActivityColor: (activityName: string, allActivities: any[]) => string;
+  onSupplyUpdate?: (updatedSupply: Supply) => void;
 }
 
 export default function SupplyConfigureModal({
@@ -54,9 +61,89 @@ export default function SupplyConfigureModal({
   handleSubcomponentToggle,
   getSubcomponentPercentage,
   isSubcomponentSelected,
-  getActivityColor
+  getActivityColor,
+  onSupplyUpdate
 }: SupplyConfigureModalProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Partial<Supply>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Initialize edit data when modal opens
+  React.useEffect(() => {
+    if (open && selectedSupply) {
+      setEditData({
+        title: selectedSupply.title,
+        description: selectedSupply.description,
+        totalValue: selectedSupply.totalValue,
+        category: selectedSupply.category
+      });
+      setValidationErrors({});
+    }
+  }, [open, selectedSupply]);
+
   if (!selectedSupply) return null;
+
+  const handleEditToggle = () => {
+    if (isEditing) {
+      // Cancel editing - reset to original values
+      setEditData({
+        title: selectedSupply.title,
+        description: selectedSupply.description,
+        totalValue: selectedSupply.totalValue,
+        category: selectedSupply.category
+      });
+      setValidationErrors({});
+    }
+    setIsEditing(!isEditing);
+  };
+
+  const validateEditData = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!editData.title?.trim()) {
+      errors.title = 'Title is required';
+    }
+
+    if (!editData.description?.trim()) {
+      errors.description = 'Description is required';
+    }
+
+    if (!editData.totalValue || editData.totalValue <= 0) {
+      errors.totalValue = 'Total value must be greater than 0';
+    }
+
+    if (!editData.category) {
+      errors.category = 'Category is required';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveEdit = () => {
+    if (!validateEditData()) return;
+
+    const updatedSupply: Supply = {
+      ...selectedSupply,
+      ...editData,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (onSupplyUpdate) {
+      onSupplyUpdate(updatedSupply);
+    }
+
+    setIsEditing(false);
+    setValidationErrors({});
+  };
+
+  const handleInputChange = (field: keyof Supply, value: any) => {
+    setEditData(prev => ({ ...prev, [field]: value }));
+    // Clear validation error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
 
   return (
     <Dialog
@@ -92,6 +179,112 @@ export default function SupplyConfigureModal({
 
       <DialogContent sx={{ p: 0 }}>
         <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+          {/* Editable Supply Information Section */}
+          <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Supply Information
+              </Typography>
+              <Button
+                startIcon={<EditIcon />}
+                onClick={handleEditToggle}
+                variant={isEditing ? "contained" : "outlined"}
+                size="small"
+              >
+                {isEditing ? 'Cancel Edit' : 'Edit Info'}
+              </Button>
+            </Box>
+
+            <Collapse in={isEditing}>
+              <Card sx={{ p: 3, mb: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <TextField
+                    label="Title"
+                    value={editData.title || ''}
+                    onChange={(e) => handleInputChange('title', e.target.value)}
+                    error={!!validationErrors.title}
+                    helperText={validationErrors.title}
+                    fullWidth
+                  />
+                  <FormControl fullWidth error={!!validationErrors.category}>
+                    <InputLabel>Category</InputLabel>
+                    <Select
+                      value={editData.category || ''}
+                      onChange={(e) => handleInputChange('category', e.target.value)}
+                      label="Category"
+                    >
+                      {SUPPLY_CATEGORIES.map((category) => (
+                        <MenuItem key={category} value={category}>
+                          {category}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Total Value"
+                    type="number"
+                    value={editData.totalValue || ''}
+                    onChange={(e) => handleInputChange('totalValue', parseFloat(e.target.value) || 0)}
+                    error={!!validationErrors.totalValue}
+                    helperText={validationErrors.totalValue}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: <Typography variant="body2" sx={{ mr: 1 }}>$</Typography>
+                    }}
+                  />
+                  <TextField
+                    label="Description"
+                    value={editData.description || ''}
+                    onChange={(e) => handleInputChange('description', e.target.value)}
+                    error={!!validationErrors.description}
+                    helperText={validationErrors.description}
+                    fullWidth
+                    multiline
+                    rows={2}
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+                  <Button variant="outlined" onClick={handleEditToggle}>
+                    Cancel
+                  </Button>
+                  <Button variant="contained" onClick={handleSaveEdit}>
+                    Save Changes
+                  </Button>
+                </Box>
+              </Card>
+            </Collapse>
+
+            {/* Read-only summary when not editing */}
+            <Collapse in={!isEditing}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Title</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {selectedSupply.title}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Category</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {selectedSupply.category}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Total Value</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {formatCurrency(selectedSupply.totalValue)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Description</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {selectedSupply.description}
+                  </Typography>
+                </Box>
+              </Box>
+            </Collapse>
+          </Box>
+
           {/* Applied Percentage Summary */}
           <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>

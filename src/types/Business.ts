@@ -39,7 +39,7 @@ export interface Business {
   dbaName: string;
   ein: string;
   entityType: string;
-  entityState: string;
+  entityState: string; // State where business is legally domiciled/incorporated (used for tax purposes)
   startYear: number | null;
   owners: Owner[];
   financialHistory: FinancialYear[];
@@ -50,6 +50,14 @@ export interface Business {
   };
   isControlledGroup?: boolean;
   isControlGroupLeader?: boolean;
+
+  // Contact information
+  mailingStreetAddress: string;
+  mailingCity: string;
+  mailingState: string; // State in mailing address (not used for tax calculations)
+  mailingZip: string;
+  website: string;
+  phoneNumber: string;
 
   // QRA-specific data
   rolesByYear: {

@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Button, Typography, Tooltip, Chip, Card, CardHeader, CardContent, CardActions, Fab, IconButton, TextField, Switch } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Box, Button, Typography, Tooltip, Chip, Card, CardHeader, CardContent, CardActions, Fab, IconButton, TextField, Switch, Paper, Dialog, DialogTitle, DialogContent, DialogActions, Alert, Accordion, AccordionSummary, AccordionDetails, FormControlLabel, Divider } from '@mui/material';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Settings as SettingsIcon, Person as PersonIcon, Business as BusinessIcon, Close as CloseIcon, FileDownload as FileDownloadIcon, Assessment as AssessmentIcon, ExpandMore as ExpandMoreIcon, DragIndicator as DragIndicatorIcon, Undo as UndoIcon, Redo as RedoIcon, ExpandLess as ExpandLessIcon, ExpandMore as ExpandMoreIcon2 } from '@mui/icons-material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
+import LockIcon from '@mui/icons-material/Lock';
 import { green } from '@mui/material/colors';
 import { RoleNode, Business } from '../../types/Business';
 import { approvalsService, TabApproval, approvalStorageService } from '../../services/approvals';
@@ -14,10 +12,22 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import { alpha } from '@mui/material/styles';
 import { useTheme } from '@mui/material/styles';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
+import { RolesService, RoleTree } from '../../services/rolesService';
+
+declare global {
+  interface Window {
+    saveRolesTimeout?: ReturnType<typeof setTimeout>;
+  }
+}
+
+// Helper function to generate UUID
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 interface IdentifyRolesTabProps {
   selectedYear: number;
@@ -83,6 +93,17 @@ const flattenAllRoles = (nodes: RoleNode[]): RoleNode[] => {
 
 const getApprovalKey = (year: number) => `rolesTabApproval-${year}`;
 
+// Helper function to convert RoleNode[] to RoleTree[]
+const convertRoleNodesToRoleTrees = (nodes: RoleNode[]): RoleTree[] => {
+  return nodes.map(node => ({
+    id: node.id,
+    name: node.name,
+    color: node.color || '#1976d2', // Provide default color if undefined
+    participatesInRD: node.participatesInRD,
+    children: convertRoleNodesToRoleTrees(node.children)
+  }));
+};
+
 const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
   selectedYear,
   selectedBusinessId,
@@ -102,31 +123,56 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [isApproved, setIsApproved] = useState(false);
   const [approvalData, setApprovalData] = useState<TabApproval | null>(null);
+  const [isLoadingRoles, setIsLoadingRoles] = useState(false);
 
   const [rolesCorrupted, setRolesCorrupted] = useState(false);
   const [showRepairDialog, setShowRepairDialog] = useState(false);
 
   const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
-  let roles: RoleNode[] = Array.isArray(selectedBusiness?.rolesByYear?.[selectedYear]) ? selectedBusiness.rolesByYear[selectedYear] : [];
+  const roles: RoleNode[] = Array.isArray(selectedBusiness?.rolesByYear?.[selectedYear]) ? selectedBusiness.rolesByYear[selectedYear] : [];
   const allRoles: RoleNode[] = flattenAllRoles(roles);
 
-  // Automatic repair logic
+  // Utility to clear all roles-related localStorage
+  const clearAllRolesLocalStorage = () => {
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith('roles-')) localStorage.removeItem(k);
+    });
+  };
+
+  // Only check for corruption after roles have been loaded and we're not in loading state
   useEffect(() => {
+    if (isLoadingRoles) return; // Don't check during loading
+    
+    if (!selectedBusinessId || !selectedYear) {
+      setRolesCorrupted(false); // Not corrupted, just not ready
+      setShowRepairDialog(false);
+      return;
+    }
+    
     const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
+    if (!selectedBusiness) {
+      console.warn('Selected business not found');
+      setRolesCorrupted(false); // Not corrupted, just not found
+      setShowRepairDialog(false);
+      return;
+    }
+    
     const rolesData = selectedBusiness?.rolesByYear?.[selectedYear];
-    if (!Array.isArray(rolesData)) {
+    
+    // Only consider it corrupted if it's explicitly not an array (null, object, etc.)
+    // Empty array is fine, undefined is fine (will be loaded from DB)
+    if (rolesData !== undefined && !Array.isArray(rolesData)) {
+      console.warn('Roles data is corrupted for year', selectedYear, 'Data:', rolesData);
       setRolesCorrupted(true);
       setShowRepairDialog(true);
     } else {
       setRolesCorrupted(false);
       setShowRepairDialog(false);
     }
-  }, [selectedYear, selectedBusinessId, businesses]);
+  }, [selectedYear, selectedBusinessId, businesses, isLoadingRoles, roles.length]);
 
   const handleRepairRoles = () => {
-    // Clear localStorage for this year
-    localStorage.removeItem(`roles-${selectedYear}`);
-    // Reset roles in business state
+    clearAllRolesLocalStorage();
     setBusinesses(bs => bs.map(b => {
       if (b.id === selectedBusinessId) {
         return {
@@ -143,31 +189,100 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
     setShowRepairDialog(false);
   };
 
-  const loadRoles = () => {
-    const storedRoles = localStorage.getItem(`roles-${selectedYear}`);
-    if (storedRoles) {
-      setBusinesses(bs => bs.map(b => {
-        if (b.id === selectedBusinessId) {
-          return {
-            ...b,
-            rolesByYear: {
-              ...b.rolesByYear,
-              [selectedYear]: JSON.parse(storedRoles)
-            }
-          };
+  const loadRoles = async () => {
+    if (!selectedBusinessId || !selectedBusinessId.trim() || !selectedYear) {
+      console.log('Cannot load roles: missing businessId or year', { selectedBusinessId, selectedYear });
+      return;
+    }
+    
+    setIsLoadingRoles(true);
+    try {
+      console.log('Loading roles from database:', { businessId: selectedBusinessId, year: selectedYear });
+      // Load roles from Supabase using RolesService
+      const rolesFromDb = await RolesService.loadRoles(selectedBusinessId, selectedYear);
+      
+      if (rolesFromDb && Array.isArray(rolesFromDb)) {
+        console.log('Loaded roles from database:', rolesFromDb);
+        setBusinesses(bs => bs.map(b => {
+          if (b.id === selectedBusinessId) {
+            return {
+              ...b,
+              rolesByYear: {
+                ...b.rolesByYear,
+                [selectedYear]: rolesFromDb
+              }
+            };
+          }
+          return b;
+        }));
+      } else {
+        console.log('No roles found in database, using empty array');
+        setBusinesses(bs => bs.map(b => {
+          if (b.id === selectedBusinessId) {
+            return {
+              ...b,
+              rolesByYear: {
+                ...b.rolesByYear,
+                [selectedYear]: []
+              }
+            };
+          }
+          return b;
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading roles from database:', error);
+      // Fallback to localStorage if database fails
+      const storedRoles = localStorage.getItem(`roles-${selectedBusinessId}-${selectedYear}`);
+      if (storedRoles) {
+        try {
+          const rolesToLoad = JSON.parse(storedRoles);
+          if (Array.isArray(rolesToLoad)) {
+            console.log('Loaded roles from localStorage fallback:', rolesToLoad);
+            setBusinesses(bs => bs.map(b => {
+              if (b.id === selectedBusinessId) {
+                return {
+                  ...b,
+                  rolesByYear: {
+                    ...b.rolesByYear,
+                    [selectedYear]: rolesToLoad
+                  }
+                };
+              }
+              return b;
+            }));
+          }
+        } catch (parseError) {
+          console.warn('Corrupted localStorage roles data, clearing');
+          localStorage.removeItem(`roles-${selectedBusinessId}-${selectedYear}`);
         }
-        return b;
-      }));
+      }
+    } finally {
+      setIsLoadingRoles(false);
     }
   };
 
   useEffect(() => {
     loadRoles();
-  }, [selectedYear]);
+  }, [selectedYear, selectedBusinessId]);
 
-  // Initialize Research Leader role if it doesn't exist
+  // Create default Research Leader role if no roles exist
   useEffect(() => {
-    if (!roles.some(r => r.id === 'research-leader')) {
+    // Only proceed if we have valid business/year and we're not loading
+    if (!selectedBusinessId || !selectedBusinessId.trim() || !selectedYear || isLoadingRoles) {
+      return;
+    }
+    
+    if (roles.length === 0) {
+      const researchLeader: RoleNode = {
+        id: 'research-leader',
+        name: 'Research Leader',
+        color: ROLE_COLORS[0],
+        children: [],
+        participatesInRD: true
+      };
+      updateRoles([researchLeader]);
+    } else if (!roles.some(r => r.id === 'research-leader')) {
       const researchLeader: RoleNode = {
         id: 'research-leader',
         name: 'Research Leader',
@@ -177,7 +292,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
       };
       updateRoles([researchLeader, ...roles]);
     }
-  }, [selectedYear, selectedBusinessId]);
+  }, [selectedYear, selectedBusinessId, roles.length, isLoadingRoles]);
 
   // Load approval state from storage on mount
   useEffect(() => {
@@ -192,7 +307,23 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
   }, [selectedYear]);
 
   // Helper to update roles in business data
-  const updateRoles = (newRoles: RoleNode[]) => {
+  const updateRoles = async (newRoles: RoleNode[]) => {
+    if (!selectedBusinessId || !selectedBusinessId.trim()) {
+      console.error('Cannot save roles: selectedBusinessId is empty or undefined');
+      setRolesCorrupted(true);
+      setShowRepairDialog(true);
+      return;
+    }
+    if (!selectedYear) {
+      console.error('Cannot save roles: selectedYear is undefined');
+      setRolesCorrupted(true);
+      setShowRepairDialog(true);
+      return;
+    }
+
+    console.log('Updating roles in state:', { businessId: selectedBusinessId, year: selectedYear, rolesCount: newRoles.length });
+
+    // Update local state immediately for responsive UI
     setBusinesses(bs => bs.map(b => {
       if (b.id === selectedBusinessId) {
         return {
@@ -205,10 +336,45 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
       }
       return b;
     }));
+    
+    // Debounce database save to prevent multiple rapid calls
+    if (window.saveRolesTimeout) {
+      clearTimeout(window.saveRolesTimeout);
+    }
+    
+    window.saveRolesTimeout = setTimeout(async () => {
+      try {
+        console.log('Saving roles to database:', { businessId: selectedBusinessId, year: selectedYear, rolesCount: newRoles.length });
+        const roleTrees = convertRoleNodesToRoleTrees(newRoles);
+        const success = await RolesService.saveRoles(selectedBusinessId, selectedYear, roleTrees);
+        if (!success) {
+          console.error('Failed to save roles to database');
+        } else {
+          console.log('Successfully saved roles to database');
+        }
+      } catch (error) {
+        console.error('Error saving roles to database:', error);
+      }
+    }, 500); // 500ms debounce
+    
+    // Also save to localStorage as backup
+    localStorage.setItem(`roles-${selectedBusinessId}-${selectedYear}`, JSON.stringify(newRoles));
   };
 
+  // Save roles to localStorage when business or year changes
+  useEffect(() => {
+    if (selectedBusinessId && selectedYear && roles.length > 0) {
+      localStorage.setItem(`roles-${selectedBusinessId}-${selectedYear}`, JSON.stringify(roles));
+    }
+  }, [selectedBusinessId, selectedYear, roles]);
+
   // Copy roles to all years
-  const copyRolesToAllYears = (roles: RoleNode[]) => {
+  const copyRolesToAllYears = async (roles: RoleNode[]) => {
+    if (!selectedBusinessId || !selectedBusinessId.trim()) {
+      console.error('Cannot copy roles: selectedBusinessId is empty or undefined');
+      return;
+    }
+
     setBusinesses(bs => bs.map(b => {
       if (b.id === selectedBusinessId) {
         const years = Object.keys(b.rolesByYear || {}).map(Number);
@@ -216,6 +382,13 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
         years.forEach(y => {
           if (JSON.stringify(b.rolesByYear[y]) !== JSON.stringify(roles)) {
             newRolesByYear[y] = JSON.parse(JSON.stringify(roles));
+            // Save to database for each year
+            const roleTrees = convertRoleNodesToRoleTrees(roles);
+            RolesService.saveRoles(selectedBusinessId, y, roleTrees).catch(error => {
+              console.error(`Error saving roles to database for year ${y}:`, error);
+            });
+            // Also save to localStorage as backup
+            localStorage.setItem(`roles-${selectedBusinessId}-${y}`, JSON.stringify(roles));
           }
         });
         return { ...b, rolesByYear: newRolesByYear };
@@ -228,7 +401,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
   const handleAddRole = (parentId?: string) => {
     const color = getNextRoleColor(roles);
     const newRole: RoleNode = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       name: 'New Role',
       color,
       children: [],
@@ -238,7 +411,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
     // Special case: add to Research Leader's children
     if (parentId === 'research-leader') {
       const updatedRoles = roles.map(role => {
-        if (role.id === 'research-leader') {
+        if (role.name === 'Research Leader') {
           return { ...role, children: [...role.children, newRole] };
         }
         return role;
@@ -380,8 +553,6 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
     setIsApproved(false);
   };
 
-
-
   // Recursive tree rendering with drag-and-drop for siblings
   const renderRoleTree = (nodes: RoleNode[], parentId?: string, isSummary = false) => {
     return (
@@ -389,7 +560,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
         {(provided) => (
           <Box ref={provided.innerRef} {...provided.droppableProps}>
             {nodes.map((node, idx) => (
-              <Draggable key={node.id} draggableId={node.id} index={idx} isDragDisabled={isSummary || node.id === 'research-leader'}>
+              <Draggable key={node.id} draggableId={node.id} index={idx} isDragDisabled={isSummary || node.name === 'Research Leader'}>
                 {(dragProvided) => (
                   <Box
                     ref={dragProvided.innerRef}
@@ -397,7 +568,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
                     sx={{ ml: parentId ? 4 : 0, mb: 1, borderLeft: parentId ? '2px solid #eee' : 'none', pl: parentId ? 2 : 0 }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {node.id !== 'research-leader' && !isSummary && (
+                      {node.name !== 'Research Leader' && !isSummary && (
                         <span {...dragProvided.dragHandleProps} style={{ cursor: 'grab' }}>⠿</span>
                       )}
                       {editingId === node.id ? (
@@ -419,7 +590,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
                             border: `2px solid ${node.color}`,
                             fontWeight: 600
                           }}
-                          onClick={() => !isSummary && node.id !== 'research-leader' && startEditing(node.id, node.name)}
+                          onClick={() => !isSummary && node.name !== 'Research Leader' && startEditing(node.id, node.name)}
                           onDelete={undefined}
                         />
                       )}
@@ -430,7 +601,7 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
                           </IconButton>
                         </Tooltip>
                       )}
-                      {!isSummary && node.id !== 'research-leader' && (
+                      {!isSummary && node.name !== 'Research Leader' && (
                         <>
                           <Tooltip title="Delete">
                             <IconButton size="small" onClick={() => handleDeleteRole(node.id)} color="error">

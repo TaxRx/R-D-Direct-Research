@@ -20,7 +20,31 @@ import {
   MenuItem,
   Chip,
   Alert,
-  IconButton
+  IconButton,
+  Grid,
+  FormControlLabel,
+  Switch,
+  Tooltip,
+  CircularProgress,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  Checkbox,
+  Radio,
+  RadioGroup,
+  FormLabel,
+  FormGroup,
+  Tabs,
+  Tab,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -31,10 +55,11 @@ import {
   Lock as LockIcon,
   LockOpen as LockOpenIcon
 } from '@mui/icons-material';
-import { parseResearchApiCsv } from '../../utils/parseResearchApi';
+import { SubcomponentSelectionData, SubcomponentConfig, StepSummary } from '../../types/QRABuilderInterfaces';
+import { getAllActivities } from '../../services/researchActivitiesService';
 
 // Types
-export interface SimpleQRAModalProps {
+interface SimpleQRAModalProps {
   open: boolean;
   onClose: () => void;
   onComplete: (data: SubcomponentSelectionData) => void;
@@ -43,65 +68,33 @@ export interface SimpleQRAModalProps {
   practicePercent: number;
   selectedRoles?: string[]; // Roles from parent activity
   initialData?: SubcomponentSelectionData | null; // Existing QRA data to initialize with
+  isActivityLocked?: boolean; // Whether the activity is locked in the parent component
 }
 
-export interface SubcomponentSelectionData {
-  // Core selection data
-  selectedSubcomponents: Record<string, SubcomponentConfig>;
-  totalAppliedPercent: number;
-  stepFrequencies: Record<string, number>;
-  stepTimeMap: Record<string, number>; // Step time allocation
-  stepTimeLocked: Record<string, boolean>; // Which steps have locked time
-  
-  // Enhanced metadata for R&D Expenses foundation
-  activityName: string; // The research activity this data belongs to
-  practicePercent: number; // Practice percentage for this activity
-  currentYear: number; // Year this configuration applies to
-  selectedRoles: string[]; // Roles associated with this activity
-  
-  // Calculation metadata
-  calculationFormula: string; // Formula used: (practicePercent × stepTime × frequency × year) / 1000000
-  lastUpdated: string; // ISO timestamp of last modification
-  
-  // Summary statistics for validation
-  totalSubcomponents: number; // Count of selected subcomponents
-  rdSubcomponents: number; // Count of R&D subcomponents (excluding Non-R&D alternatives)
-  nonRdSubcomponents: number; // Count of Non-R&D alternative subcomponents
-  
-  // Step-level summaries for employee time allocation
-  stepSummaries: Record<string, StepSummary>; // Detailed breakdown per step
-}
-
-interface StepSummary {
-  stepName: string;
-  timePercent: number; // Time allocated to this step
-  subcomponentCount: number; // Number of subcomponents in this step
-  totalAppliedPercent: number; // Sum of applied percentages for this step
-  isLocked: boolean; // Whether time allocation is locked
-}
-
-interface SubcomponentConfig {
-  phase: string;
-  step: string;
-  subcomponent: string;
-  timePercent: number; // This will now be inherited from step time
-  frequencyPercent: number;
-  yearPercent: number;
-  startYear: number;
-  selectedRoles: string[];
-  appliedPercent: number;
-  isNonRD?: boolean; // Flag for Non-R&D Alternative subcomponents
-}
-
-interface CSVRow {
-  Category: string;
-  Area: string;
-  Focus: string;
-  Phase: string;
-  Step: string;
-  Subcomponent: string;
-  Hint: string;
-  'Research Activity': string;
+interface ActivityData {
+  id: string;
+  category: string;
+  area: string;
+  focus: string;
+  researchActivity: string;
+  'Research Activity'?: string; // Legacy support
+  step?: string;
+  subcomponent?: string;
+  'Subcomponent'?: string; // Legacy support
+  hint?: string;
+  generalDescription?: string;
+  goal?: string;
+  hypothesis?: string;
+  alternatives?: string;
+  uncertainties?: string;
+  developmentalProcess?: string;
+  primaryGoal?: string;
+  expectedOutcomeType?: string;
+  cptCodes?: string[];
+  cdtCodes?: string[];
+  alternativePaths?: string;
+  isLimitedAccess?: boolean;
+  phase?: string; // Lowercase to match Supabase
 }
 
 const MONTHS = [
@@ -117,9 +110,10 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
   currentYear,
   practicePercent,
   selectedRoles = [],
-  initialData = null
+  initialData = null,
+  isActivityLocked = false
 }) => {
-  const [data, setData] = useState<CSVRow[]>([]);
+  const [data, setData] = useState<ActivityData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSubcomponents, setSelectedSubcomponents] = useState<Record<string, SubcomponentConfig>>({});
   const [selectedStepFilter, setSelectedStepFilter] = useState<string>('');
@@ -129,40 +123,59 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
   // State for expanded steps (only one at a time)
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   
-  // Load CSV data
+  // Load activities from Supabase
   useEffect(() => {
-    const loadData = async () => {
+    const loadActivities = async () => {
       try {
-        const response = await fetch('/Research API.csv');
-        const csvText = await response.text();
-        const parsedData = parseResearchApiCsv(csvText);
+        setLoading(true);
+        const activities = await getAllActivities();
         
-        // Convert to the expected CSVRow format
-        const csvRows: CSVRow[] = parsedData.map(row => ({
-          Category: row.category || '',
-          Area: row.area || '',
-          Focus: row.focus || '',
-          Phase: '', // Phase is not available in normalized format
-          Step: row.step || '',
-          Subcomponent: row.subcomponent || '',
-          Hint: row.hint || '',
-          'Research Activity': row.researchActivity || ''
+        // Transform the data to match ActivityData interface
+        const transformedActivities: ActivityData[] = activities.map((activity: any, index: number) => ({
+          id: activity.id || `activity-${index}`,
+          category: activity.category || '',
+          area: activity.area || '',
+          focus: activity.focus || '',
+          researchActivity: activity.research_activity || activity.researchActivity || '',
+          'Research Activity': activity.research_activity || activity.researchActivity || '', // Legacy support
+          step: activity.step || '',
+          subcomponent: activity.subcomponent || '',
+          'Subcomponent': activity.subcomponent || '', // Legacy support
+          hint: activity.hint || '',
+          generalDescription: activity.general_description || '',
+          goal: activity.goal || '',
+          hypothesis: activity.hypothesis || '',
+          alternatives: activity.alternatives || '',
+          uncertainties: activity.uncertainties || '',
+          developmentalProcess: activity.developmental_process || '',
+          primaryGoal: activity.primary_goal || '',
+          expectedOutcomeType: activity.expected_outcome_type || '',
+          cptCodes: activity.cpt_codes || [],
+          cdtCodes: activity.cdt_codes || [],
+          alternativePaths: activity.alternative_paths || '',
+          isLimitedAccess: activity.is_limited_access || false,
+          phase: activity.phase || '' // Legacy support
         }));
         
-        setData(csvRows);
+        setData(transformedActivities);
       } catch (error) {
-        console.error('Error loading CSV data:', error);
+        console.error('Error loading activities from Supabase:', error);
       } finally {
         setLoading(false);
       }
     };
-    loadData();
-  }, []);
+
+    if (open) {
+      loadActivities();
+    }
+  }, [open]);
 
   // Initialize with existing data if provided
   useEffect(() => {
     if (open) {
+      console.log(`[SimpleQRAModal] Modal opened for activity: "${activity}". Received initialData:`, initialData);
       if (initialData) {
+        console.log('[SimpleQRAModal] Initializing with provided data.');
         setSelectedSubcomponents(initialData.selectedSubcomponents || {});
         setStepTimeMap(initialData.stepTimeMap || {});
         setStepTimeLocked(initialData.stepTimeLocked || {});
@@ -170,6 +183,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
         setSelectedStepFilter('');
       } else {
         // Clear all state to prevent leakage between research activities
+        console.log('[SimpleQRAModal] No initialData provided, clearing state.');
         setSelectedSubcomponents({});
         setStepTimeMap({}); // Clear step time map for new activity
         setStepTimeLocked({}); // Clear step time locks for new activity
@@ -177,23 +191,29 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
         setSelectedStepFilter('');
       }
     }
-  }, [open, initialData]);
+  }, [open, initialData, activity]);
+
+  // Filter data for current activity
+  const filteredData = useMemo(() => {
+    return data.filter(row => 
+      row.researchActivity === activity || row['Research Activity'] === activity
+    );
+  }, [data, activity]);
 
   // Organize data by step
   const organizedData = useMemo(() => {
-    if (!data.length) return {};
-    
-    const organized: Record<string, CSVRow[]> = {};
-    data.forEach(row => {
-      if (row['Research Activity'] === activity) {
-        if (!organized[row.Step]) {
-          organized[row.Step] = [];
+    const organized: Record<string, ActivityData[]> = {};
+    filteredData.forEach(row => {
+      if (row.researchActivity === activity || row['Research Activity'] === activity) {
+        const step = row.step || 'Unknown';
+        if (!organized[step]) {
+          organized[step] = [];
         }
-        organized[row.Step].push(row);
+        organized[step].push(row);
       }
     });
     return organized;
-  }, [data, activity]);
+  }, [filteredData, activity]);
 
   // Initialize stepTimeMap when organizedData changes
   useEffect(() => {
@@ -279,74 +299,52 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
   const exceedsPractice = totalAppliedPercent > practicePercent;
 
   // Handle subcomponent selection
-  const handleSubcomponentToggle = (step: string, subcomponent: CSVRow) => {
-    const key = `${step}-${subcomponent.Subcomponent}`;
-    const isNonRD = subcomponent.Subcomponent.toLowerCase().includes('non-r&d alternative');
+  const handleSubcomponentToggle = (step: string, subcomponent: ActivityData) => {
+    const subcomponentName = subcomponent.subcomponent || subcomponent['Subcomponent'] || 'Unknown';
+    const key = `${step}-${subcomponentName}`;
+    const isNonRD = subcomponentName.toLowerCase().includes('non-r&d alternative');
     
     setSelectedSubcomponents(prev => {
       const updated = { ...prev };
       
-      if (updated[key]) {
-        // Remove subcomponent
-        delete updated[key];
-        
-        // Redistribute remaining subcomponents in the step
-        const remainingStepSubcomponents = Object.entries(updated)
-          .filter(([_, config]) => config && config.step === step);
-        
-        if (remainingStepSubcomponents.length > 0) {
-          const equalFrequency = Math.round((100 / remainingStepSubcomponents.length) * 100) / 100;
-          let remainder = Math.round((100 - (equalFrequency * remainingStepSubcomponents.length)) * 100) / 100;
-          
-          remainingStepSubcomponents.forEach(([itemKey, _], index) => {
-            let frequency = equalFrequency;
-            if (index === 0 && remainder !== 0) {
-              frequency = Math.round((frequency + remainder) * 100) / 100;
+      if (isNonRD) {
+        // For Non-R&D Alternative, toggle all other subcomponents
+        const stepSubcomponents = organizedData[step] || [];
+        stepSubcomponents.forEach(sub => {
+          const subKey = `${step}-${sub.subcomponent || sub['Subcomponent'] || 'Unknown'}`;
+          if (subKey !== key) {
+            if (updated[key]) {
+              // Non-R&D is being added, reduce others
+              updated[subKey] = {
+                ...updated[subKey],
+                timePercent: Math.max(0, (updated[subKey]?.timePercent || 0) - 10)
+              };
+            } else {
+              // Non-R&D is being removed, restore others
+              updated[subKey] = {
+                ...updated[subKey],
+                timePercent: Math.min(100, (updated[subKey]?.timePercent || 0) + 10)
+              };
             }
-            updated[itemKey] = {
-              ...updated[itemKey],
-              frequencyPercent: frequency
-            };
-          });
-        }
+          }
+        });
+      }
+      
+      if (updated[key]) {
+        delete updated[key];
       } else {
-        // Add subcomponent with step time
-        const stepTime = stepTimeMap[step] || 0;
-        
-        // Get existing subcomponents in the step
-        const existingStepSubcomponents = Object.entries(prev)
-          .filter(([_, config]) => config && config.step === step);
-        
-        const totalSubcomponentsAfterAdd = existingStepSubcomponents.length + 1;
-        const newEqualFrequency = Math.round((100 / totalSubcomponentsAfterAdd) * 100) / 100;
-        let remainder = Math.round((100 - (newEqualFrequency * totalSubcomponentsAfterAdd)) * 100) / 100;
-        
         // Add the new subcomponent
         updated[key] = {
-          phase: subcomponent.Phase,
+          phase: subcomponent.phase || 'Unknown',
           step: step,
-          subcomponent: subcomponent.Subcomponent,
-          timePercent: stepTime, // Use step time
-          frequencyPercent: newEqualFrequency, // Start with pro-rata frequency
+          subcomponent: subcomponentName,
+          timePercent: stepTimeMap[step] || 0,
+          frequencyPercent: 0,
           yearPercent: 100,
-          startYear: currentYear,
-          selectedRoles: [...selectedRoles], // Inherit all roles from parent activity
+          selectedRoles: [...selectedRoles],
           appliedPercent: 0,
           isNonRD: isNonRD
         };
-        
-        // Adjust existing subcomponents in the same step to the new equal frequency
-        existingStepSubcomponents.forEach(([itemKey, _], index) => {
-          let frequency = newEqualFrequency;
-          // Add remainder to the first existing item
-          if (index === 0 && remainder !== 0) {
-            frequency = Math.round((frequency + remainder) * 100) / 100;
-          }
-          updated[itemKey] = {
-            ...updated[itemKey],
-            frequencyPercent: frequency
-          };
-        });
       }
       
       return updated;
@@ -541,7 +539,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
   const segmentedProgressData = useMemo(() => {
     const segments = Object.entries(selectedSubcomponents).map(([key, config]) => ({
       key,
-      name: config.subcomponent,
+      name: typeof config.subcomponent === 'string' ? config.subcomponent : config.subcomponent?.title || 'Unknown',
       step: config.step,
       value: calculateAppliedPercent(config),
       isNonRD: config.isNonRD || false,
@@ -694,15 +692,30 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
     >
       <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', position: 'relative' }}>
         <Box sx={{ pr: 6 }}>
-          <Typography variant="h5" component="div">
-            Configure Subcomponents for {activity}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <Typography variant="h5" component="div">
+              Configure Subcomponents for {activity}
+            </Typography>
+            {isActivityLocked && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(255,255,255,0.2)', px: 1, py: 0.5, borderRadius: 1 }}>
+                <LockIcon fontSize="small" />
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  LOCKED
+                </Typography>
+              </Box>
+            )}
+          </Box>
           <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
             Practice Percentage: {Math.round(practicePercent * 100) / 100}% | Available Steps: {Object.keys(organizedData).length}
             {selectedCount > 0 && (
               <>
                 {' | '}Selected: {selectedCount} ({Object.values(selectedSubcomponents).filter(c => !c.isNonRD).length} R&D, {Object.values(selectedSubcomponents).filter(c => c.isNonRD).length} Non-R&D)
                 {' | '}Applied: {Math.round(getTotalAppliedPercent() * 100) / 100}%
+              </>
+            )}
+            {isActivityLocked && (
+              <>
+                {' | '}<span style={{ color: '#ffd700', fontWeight: 600 }}>Activity is locked - view only mode</span>
               </>
             )}
           </Typography>
@@ -730,20 +743,20 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
             <Alert severity="warning" sx={{ mb: 2 }}>
               No subcomponents found for research activity "{activity}". Please check the CSV data or activity name.
             </Alert>
-            {data.length > 0 && (
+            {filteredData.length > 0 && (
               <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
                 <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
-                  Available activities in CSV ({[...new Set(data.map(row => row['Research Activity']))].length} total):
+                  Available activities in CSV ({[...new Set(filteredData.map(row => row.researchActivity))].length} total):
                 </Typography>
                 <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                  {[...new Set(data.map(row => row['Research Activity']))].slice(0, 20).map((act, idx) => (
+                  {[...new Set(filteredData.map(row => row.researchActivity))].slice(0, 20).map((act, idx) => (
                     <Typography key={idx} variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>
                       "{act}"
                     </Typography>
                   ))}
-                  {[...new Set(data.map(row => row['Research Activity']))].length > 20 && (
+                  {[...new Set(filteredData.map(row => row.researchActivity))].length > 20 && (
                     <Typography variant="caption" sx={{ fontStyle: 'italic' }}>
-                      ... and {[...new Set(data.map(row => row['Research Activity']))].length - 20} more
+                      ... and {[...new Set(filteredData.map(row => row.researchActivity))].length - 20} more
                     </Typography>
                   )}
                 </Box>
@@ -814,6 +827,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                             onClick={() => toggleStepTimeLock(step)}
                             color={stepTimeLocked[step] ? 'primary' : 'default'}
                             title={stepTimeLocked[step] ? 'Unlock step time' : 'Lock step time'}
+                            disabled={isActivityLocked}
                           >
                             {stepTimeLocked[step] ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />}
                           </IconButton>
@@ -825,7 +839,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                         min={0}
                         max={100}
                         step={0.01}
-                        disabled={stepTimeLocked[step]}
+                        disabled={stepTimeLocked[step] || isActivityLocked}
                         valueLabelDisplay="auto"
                         valueLabelFormat={v => `${Math.round(v * 100) / 100}%`}
                         size="small"
@@ -995,50 +1009,49 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                         {/* Subcomponent Cards */}
                         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 2, mb: 2 }}>
                           {subcomponents.map((sub, idx) => {
-                            const key = `${step}-${sub.Subcomponent}`;
+                            const key = `${step}-${sub.subcomponent || sub['Subcomponent'] || 'Unknown'}`;
                             const isSelected = !!selectedSubcomponents[key];
-                            const isNonRD = sub.Subcomponent.toLowerCase().includes('non-r&d alternative');
+                            const isNonRD = (sub.subcomponent || sub['Subcomponent'] || '').toLowerCase().includes('non-r&d alternative');
                             
                             return (
                               <Card 
                                 key={idx}
                                 sx={{ 
-                                  border: '1px solid',
-                                  borderColor: isSelected ? (isNonRD ? 'grey.500' : 'primary.main') : 'divider',
-                                  cursor: 'pointer',
-                                  '&:hover': { boxShadow: 2 },
-                                  bgcolor: isSelected ? (isNonRD ? 'grey.200' : 'primary.light') : 'white',
-                                  color: isSelected ? (isNonRD ? 'text.primary' : 'primary.contrastText') : 'text.primary'
+                                  cursor: isActivityLocked ? 'not-allowed' : 'pointer',
+                                  border: isSelected ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                                  bgcolor: isSelected ? '#f3f6ff' : 'white',
+                                  opacity: isActivityLocked ? 0.6 : 1
                                 }}
-                                onClick={() => !isSelected && handleSubcomponentToggle(step, sub)}
+                                onClick={() => !isActivityLocked && handleSubcomponentToggle(step, sub)}
                               >
                                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                                    <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600, fontSize: '0.875rem' }}>
-                                      {sub.Subcomponent}
-                                    </Typography>
-                                    
-                                    {isSelected ? (
-                                      <IconButton 
-                                        size="small" 
-                                        sx={{ color: 'inherit', p: 0.5 }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                    <Checkbox
+                                      checked={isSelected}
+                                      disabled={isActivityLocked}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!isActivityLocked) {
                                           handleSubcomponentToggle(step, sub);
-                                        }}
-                                      >
-                                        <DeleteIcon fontSize="small" />
-                                      </IconButton>
-                                    ) : (
-                                      <IconButton size="small" color={isNonRD ? 'default' : 'primary'} sx={{ p: 0.5 }}>
-                                        <AddIcon fontSize="small" />
-                                      </IconButton>
+                                        }
+                                      }}
+                                    />
+                                    <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: isSelected ? 600 : 400 }}>
+                                      {sub.subcomponent || sub['Subcomponent'] || 'Unknown'}
+                                    </Typography>
+                                    {isNonRD && (
+                                      <Chip 
+                                        label="Non-R&D" 
+                                        size="small" 
+                                        color="warning" 
+                                        variant="outlined"
+                                        sx={{ ml: 1 }}
+                                      />
                                     )}
                                   </Box>
-                                  
-                                  {sub.Hint && (
-                                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.8, fontSize: '0.75rem' }}>
-                                      {sub.Hint.substring(0, 80)}{sub.Hint.length > 80 ? '...' : ''}
+                                  {sub.hint && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                      {sub.hint}
                                     </Typography>
                                   )}
                                 </CardContent>
@@ -1050,63 +1063,62 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                         {/* Non-R&D Alternative Option */}
                         {(() => {
                           const nonRDKey = `${step}-Non-R&D Alternative`;
-                          const isNonRDSelected = !!selectedSubcomponents[nonRDKey];
+                          const isSelected = !!selectedSubcomponents[nonRDKey];
                           
                           return (
                             <Card 
                               sx={{ 
-                                border: '2px solid',
-                                borderColor: isNonRDSelected ? 'grey.500' : 'grey.400',
-                                cursor: 'pointer',
-                                '&:hover': { boxShadow: 2 },
-                                bgcolor: isNonRDSelected ? 'grey.200' : 'grey.100',
-                                color: 'text.primary'
+                                cursor: isActivityLocked ? 'not-allowed' : 'pointer',
+                                border: isSelected ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                                bgcolor: isSelected ? '#f3f6ff' : 'white',
+                                opacity: isActivityLocked ? 0.6 : 1
                               }}
-                              onClick={() => handleSubcomponentToggle(step, {
-                                Step: step,
-                                Subcomponent: 'Non-R&D Alternative',
-                                Phase: '',
-                                Category: '',
-                                Area: '',
-                                Focus: '',
-                                Hint: 'Reduces the percentage of every other applied subcomponent but is not added to the calculation.',
-                                'Research Activity': activity
-                              } as CSVRow)}
+                              onClick={() => !isActivityLocked && handleSubcomponentToggle(step, {
+                                id: 'non-rd-alternative',
+                                category: '',
+                                area: '',
+                                focus: '',
+                                researchActivity: activity,
+                                step: step,
+                                subcomponent: 'Non-R&D Alternative',
+                                phase: '',
+                                hint: 'Reduces the percentage of every other applied subcomponent but is not added to the calculation.'
+                              })}
                             >
                               <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                                  <Typography variant="subtitle2" sx={{ flexGrow: 1, fontWeight: 600, fontSize: '0.875rem' }}>
+                                  <Checkbox
+                                    checked={isSelected}
+                                    disabled={isActivityLocked}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isActivityLocked) {
+                                        handleSubcomponentToggle(step, {
+                                          id: 'non-rd-alternative',
+                                          category: '',
+                                          area: '',
+                                          focus: '',
+                                          researchActivity: activity,
+                                          step: step,
+                                          subcomponent: 'Non-R&D Alternative',
+                                          phase: '',
+                                          hint: ''
+                                        });
+                                      }
+                                    }}
+                                  />
+                                  <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: isSelected ? 600 : 400 }}>
                                     Non-R&D Alternative
                                   </Typography>
-                                  
-                                  {isNonRDSelected ? (
-                                    <IconButton 
-                                      size="small" 
-                                      sx={{ color: 'inherit', p: 0.5 }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSubcomponentToggle(step, {
-                                          Step: step,
-                                          Subcomponent: 'Non-R&D Alternative',
-                                          Phase: '',
-                                          Category: '',
-                                          Area: '',
-                                          Focus: '',
-                                          Hint: '',
-                                          'Research Activity': activity
-                                        } as CSVRow);
-                                      }}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  ) : (
-                                    <IconButton size="small" color="default" sx={{ p: 0.5 }}>
-                                      <AddIcon fontSize="small" />
-                                    </IconButton>
-                                  )}
+                                  <Chip 
+                                    label="Non-R&D" 
+                                    size="small" 
+                                    color="warning" 
+                                    variant="outlined"
+                                    sx={{ ml: 1 }}
+                                  />
                                 </Box>
-                                
-                                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8, fontSize: '0.75rem' }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                                   Reduces the percentage of every other applied subcomponent but is not added to the calculation.
                                 </Typography>
                               </CardContent>
@@ -1201,21 +1213,23 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                              {config.subcomponent}
+                              {typeof config.subcomponent === 'string' ? config.subcomponent : (config.subcomponent as any)?.title || 'Unknown'}
                             </Typography>
-                            <IconButton 
-                              size="small" 
+                            <IconButton
+                              size="small"
                               color="error"
-                              onClick={() => handleSubcomponentToggle(config.step, { 
-                                Step: config.step, 
-                                Subcomponent: config.subcomponent,
-                                Phase: config.phase,
-                                Category: '',
-                                Area: '',
-                                Focus: '',
-                                Hint: '',
-                                'Research Activity': activity
-                              } as CSVRow)}
+                              disabled={isActivityLocked}
+                              onClick={() => !isActivityLocked && handleSubcomponentToggle(config.step, {
+                                id: `selected-${config.step}-${config.subcomponent}`,
+                                category: '',
+                                area: '',
+                                focus: '',
+                                researchActivity: activity,
+                                step: config.step,
+                                subcomponent: typeof config.subcomponent === 'string' ? config.subcomponent : (config.subcomponent as any)?.title || 'Unknown',
+                                phase: config.phase || '',
+                                hint: ''
+                              })}
                             >
                               <DeleteIcon fontSize="small" />
                             </IconButton>
@@ -1245,6 +1259,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                               min={0}
                               max={100}
                               step={0.01}
+                              disabled={isActivityLocked}
                               valueLabelDisplay="auto"
                               valueLabelFormat={v => `${Math.round(v * 100) / 100}%`}
                               sx={config.isNonRD ? {
@@ -1263,6 +1278,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                 <Select
                                   value={Math.round((100 - config.yearPercent) / (100/11))}
                                   label="Start Month"
+                                  disabled={isActivityLocked}
                                   onChange={(e) => {
                                     const monthIndex = Number(e.target.value);
                                     const yearPercent = Math.round((100 - (monthIndex * (100/11))) * 100) / 100;
@@ -1281,6 +1297,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                 label="Start Year"
                                 type="number"
                                 value={config.startYear}
+                                disabled={isActivityLocked}
                                 onChange={(e) => handleMetricChange(key, 'startYear', Number(e.target.value))}
                                 size="small"
                                 sx={{ flex: 1 }}
@@ -1304,9 +1321,13 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                     label={role}
                                     size="small"
                                     color={(config.selectedRoles || []).includes(role) ? 'primary' : 'default'}
-                                    onClick={() => handleRoleToggle(key, role)}
+                                    onClick={() => !isActivityLocked && handleRoleToggle(key, role)}
                                     variant={(config.selectedRoles || []).includes(role) ? 'filled' : 'outlined'}
-                                    sx={{ cursor: 'pointer', fontSize: '0.7rem' }}
+                                    sx={{ 
+                                      cursor: isActivityLocked ? 'not-allowed' : 'pointer', 
+                                      fontSize: '0.7rem',
+                                      opacity: isActivityLocked ? 0.6 : 1
+                                    }}
                                   />
                                 ))}
                               </Box>
@@ -1331,8 +1352,8 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
             onClick={handleExportData}
             variant="outlined"
             size="small"
-            disabled={selectedCount === 0}
-            title="Export QRA configuration for R&D Expenses foundation"
+            disabled={selectedCount === 0 || isActivityLocked}
+            title={isActivityLocked ? "Cannot export while activity is locked" : "Export QRA configuration for R&D Expenses foundation"}
           >
             Export Config
           </Button>
@@ -1343,13 +1364,15 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
             onChange={handleImportData}
             style={{ display: 'none' }}
             id="import-qra-config"
+            disabled={isActivityLocked}
           />
           <label htmlFor="import-qra-config">
             <Button 
               component="span"
               variant="outlined"
               size="small"
-              title="Import QRA configuration"
+              disabled={isActivityLocked}
+              title={isActivityLocked ? "Cannot import while activity is locked" : "Import QRA configuration"}
             >
               Import Config
             </Button>
@@ -1363,15 +1386,17 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
           <Button 
             onClick={handleComplete} 
             variant="contained" 
-            disabled={selectedCount === 0 || !validation.isValid}
+            disabled={selectedCount === 0 || !validation.isValid || isActivityLocked}
             color={exceedsPractice ? "warning" : validation.isValid ? "primary" : "error"}
-            title={!validation.isValid ? "Please resolve validation errors before completing" : ""}
+            title={!validation.isValid ? "Please resolve validation errors before completing" : isActivityLocked ? "Cannot complete while activity is locked" : ""}
           >
             {!validation.isValid 
               ? `Cannot Complete (${validation.errors.length} errors)` 
-              : exceedsPractice 
-                ? 'Complete (Will Auto-Adjust)' 
-                : `Complete (${selectedCount} selected)`
+              : isActivityLocked
+                ? 'Activity Locked'
+                : exceedsPractice 
+                  ? 'Complete (Will Auto-Adjust)' 
+                  : `Complete (${selectedCount} selected)`
             }
           </Button>
         </Box>

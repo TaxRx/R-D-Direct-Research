@@ -1,5 +1,7 @@
-import { useCallback } from 'react';
-import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
+import { useCallback, useState, useEffect } from 'react';
+import { SubcomponentSelectionData } from '../../types/QRABuilderInterfaces';
+import { loadQRADataFromSupabase } from '../../services/qraDataService';
+import { QRABuilderService } from '../../services/qrabuilderService';
 
 /**
  * Custom hook for QRA (Qualified Research Activities) calculations
@@ -9,27 +11,92 @@ export const useQRACalculations = (
   selectedBusinessId: string,
   selectedYear: number
 ) => {
+  const [qraDataCache, setQraDataCache] = useState<Record<string, SubcomponentSelectionData | null>>({});
+  const [loadingCache, setLoadingCache] = useState<Record<string, boolean>>({});
+
   /**
-   * Get QRA data for a specific activity from localStorage
+   * Get QRA data for a specific activity from Supabase with localStorage fallback
    */
-  const getQRAData = useCallback((activityName: string): SubcomponentSelectionData | null => {
+  const getQRAData = useCallback(async (activityName: string): Promise<SubcomponentSelectionData | null> => {
     try {
-      const qraData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityName}`);
-      return qraData ? JSON.parse(qraData) : null;
+      // Check cache first
+      if (qraDataCache[activityName] !== undefined) {
+        return qraDataCache[activityName];
+      }
+
+      // Check if already loading
+      if (loadingCache[activityName]) {
+        return null;
+      }
+
+      // Set loading state
+      setLoadingCache(prev => ({ ...prev, [activityName]: true }));
+
+      // Find the activity ID by name first
+      const STORAGE_KEY = 'businessInfoData';
+      const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+      const yearData = business?.years?.[selectedYear];
+      const activities = yearData?.activities || {};
+      
+      // Find activity ID by name
+      const activityEntry = Object.entries(activities).find(([id, activity]: [string, any]) => 
+        activity.name === activityName
+      );
+      
+      if (!activityEntry) {
+        console.warn(`Could not find activity with name: ${activityName}`);
+        setLoadingCache(prev => ({ ...prev, [activityName]: false }));
+        return null;
+      }
+      
+      const activityId = activityEntry[0];
+
+      // Try Supabase first using the new service
+      try {
+        const supabaseData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
+        
+        if (supabaseData) {
+          // Cache the result
+          setQraDataCache(prev => ({ ...prev, [activityName]: supabaseData }));
+          setLoadingCache(prev => ({ ...prev, [activityName]: false }));
+          return supabaseData;
+        }
+      } catch (error) {
+        console.warn(`Error loading from Supabase for ${activityName}:`, error);
+      }
+
+      // Fallback to localStorage
+      const localStorageData = localStorage.getItem(`qra_${selectedBusinessId}_${selectedYear}_${activityId}`);
+      const parsedData = localStorageData ? JSON.parse(localStorageData) : null;
+      
+      // Cache the result
+      setQraDataCache(prev => ({ ...prev, [activityName]: parsedData }));
+      setLoadingCache(prev => ({ ...prev, [activityName]: false }));
+      
+      return parsedData;
     } catch (error) {
       console.error('Error loading QRA data:', error);
+      setLoadingCache(prev => ({ ...prev, [activityName]: false }));
       return null;
     }
-  }, [selectedBusinessId, selectedYear]);
+  }, [selectedBusinessId, selectedYear, qraDataCache, loadingCache]);
+
+  /**
+   * Synchronous version for immediate access (uses cache only)
+   */
+  const getQRADataSync = useCallback((activityName: string): SubcomponentSelectionData | null => {
+    return qraDataCache[activityName] || null;
+  }, [qraDataCache]);
 
   /**
    * Get the applied percentage for a specific activity
    * This uses the baseline applied percentage from Activities tab
    */
   const getAppliedPercentage = useCallback((activityName: string): number => {
-    const qraData = getQRAData(activityName);
+    const qraData = getQRADataSync(activityName);
     return qraData?.totalAppliedPercent || 0;
-  }, [getQRAData]);
+  }, [getQRADataSync]);
 
   /**
    * Calculate applied percentage for a single activity using full QRA formula
@@ -47,7 +114,7 @@ export const useQRACalculations = (
       const basePracticePercent = practicePercentages[activity.name];
       
       // Get QRA data to access frequency and year percentages
-      const qraData = getQRAData(activity.name);
+      const qraData = getQRADataSync(activity.name);
       
       if (qraData?.selectedSubcomponents) {
         // Calculate using FULL QRA FORMULA for each subcomponent
@@ -86,7 +153,7 @@ export const useQRACalculations = (
     }
     
     return contributedApplied;
-  }, [getQRAData]);
+  }, [getQRADataSync]);
 
   /**
    * Calculate the total applied percentage for an employee across all their activities
@@ -161,8 +228,17 @@ export const useQRACalculations = (
     return totalApplied;
   }, []);
 
+  /**
+   * Clear cache when business or year changes
+   */
+  useEffect(() => {
+    setQraDataCache({});
+    setLoadingCache({});
+  }, [selectedBusinessId, selectedYear]);
+
   return {
     getQRAData,
+    getQRADataSync,
     getAppliedPercentage,
     calculateActivityAppliedPercentage,
     calculateEmployeeAppliedPercentage,

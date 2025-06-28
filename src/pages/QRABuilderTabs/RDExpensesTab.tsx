@@ -17,11 +17,15 @@ import {
 // Type Imports
 import { Business, RoleNode, Role } from '../../types/Business';
 import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData, EMPTY_EXPENSE_FORM, EMPTY_CONTRACTOR_FORM, EMPTY_SUPPLY_FORM, NON_RD_ROLE, OTHER_ROLE, SUPPLY_CATEGORIES } from '../../types/Employee';
+import { SubcomponentSelectionData } from '../../types/QRABuilderInterfaces';
 
 // Service Imports
 import { ExpensesService } from '../../services/expensesService';
 import { CSVExportService } from '../../services/csvExportService';
-import { approvalsService } from '../../services/approvals';
+import { approvalsService, TabApproval } from '../../services/approvals';
+import { QRADataExportService } from '../../services/qraDataExportService';
+import { loadQRADataFromSupabase } from '../../services/qraDataService';
+import { QRABuilderService } from '../../services/qrabuilderService';
 
 // Util Imports
 import { formatCurrencyInput, parseCurrencyInput, formatCurrency } from '../../utils/currencyFormatting';
@@ -29,9 +33,9 @@ import { flattenAllRoles, getRoleName, calculateRoleAppliedPercentages } from '.
 
 // Hook Imports
 import { CreditCalculatorInput, useFederalCreditCalculations } from '../../components/expenses/credit-calculator/useFederalCreditCalculations';
+import { useQRACalculations } from '../../hooks/expenses/useQRACalculations';
 
 // Component Imports
-import { SubcomponentSelectionData } from '../../components/qra/SimpleQRAModal';
 import { EmployeeForm } from '../../components/expenses/forms/EmployeeForm';
 import { ContractorForm } from '../../components/expenses/forms/ContractorForm';
 import { SupplyForm } from '../../components/expenses/forms/SupplyForm';
@@ -43,8 +47,8 @@ import ContractorConfigureModal from '../../components/expenses/modals/Contracto
 import SupplyConfigureModal from '../../components/expenses/modals/SupplyConfigureModal';
 import { ExportButton } from '../../components/expenses/shared/ExportButton';
 import { ExpenseTabNavigation } from '../../components/expenses/tabs/ExpenseTabNavigation';
-import { ReportingDashboard } from '../../components/expenses/reports/ReportingDashboard';
 import { ExpenseSummary } from '../../components/expenses/shared/ExpenseSummary';
+import { ExpenseAnalytics, ComplianceReport, QREDataExportPanel } from '../../components/expenses/reports';
 
 interface RDExpensesTabProps {
   selectedYear: number;
@@ -81,6 +85,9 @@ export default function RDExpensesTab({
   const [supplyFormError, setSupplyFormError] = useState<string>('');
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  
+  // Approval state
+  const [approvalData, setApprovalData] = useState<TabApproval | null>(null);
   
   // Employee Configure Modal state
   const [configureModalOpen, setConfigureModalOpen] = useState(false);
@@ -130,6 +137,9 @@ export default function RDExpensesTab({
   const qraData = useMemo(() => {
     return selectedBusiness?.years[selectedYear]?.qraData || [];
   }, [selectedBusiness, selectedYear]);
+
+  // Add state for QRA data map
+  const [qraDataMap, setQraDataMap] = useState<Record<string, SubcomponentSelectionData>>({});
 
   const loadEmployees = useCallback(() => {
     const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
@@ -204,6 +214,44 @@ export default function RDExpensesTab({
       setRoles(rolesWithAppliedPercentages);
     }
   }, [selectedYear, selectedBusinessId, isActivitiesApproved, businessRoles, loadEmployees, loadContractors, loadSupplies, loadAvailableYears, calculateRoleAppliedPercentages]);
+
+  // Load approval state from storage on mount
+  useEffect(() => {
+    const stored = approvalsService.getApprovalData('expenses', selectedYear);
+    if (stored && stored.approvalData) {
+      setApprovalData(stored.approvalData);
+    } else {
+      setApprovalData(null);
+    }
+  }, [selectedYear]);
+
+  // Handle approval
+  const handleApprove = async () => {
+    try {
+      const approval: TabApproval = {
+        timestamp: new Date().toISOString(),
+        ipAddress: '127.0.0.1', // In a real app, this would come from the request
+        data: {
+          employees: employees,
+          contractors: contractors,
+          supplies: supplies,
+          roles: roles,
+          availableYears: availableYears
+        }
+      };
+      
+      approvalsService.recordApproval('expenses', approval, selectedYear);
+      setApprovalData(approval);
+    } catch (error) {
+      console.error('Error approving expenses:', error);
+    }
+  };
+
+  // Handle unapproval
+  const handleUnapprove = () => {
+    approvalsService.removeApproval('expenses', selectedYear);
+    setApprovalData(null);
+  };
 
   const handleFormChange = (field: keyof ExpenseFormData, value: string | boolean) => {
     if (field === 'wage' && typeof value === 'string') {
@@ -477,27 +525,73 @@ export default function RDExpensesTab({
   };
 
   const handleSaveSupplyConfiguration = () => {
-    if (!selectedSupplyForConfig) return;
+    if (selectedSupplyForConfig) {
+      // Save the supply configuration
+      const updatedSupply: Supply = {
+        ...selectedSupplyForConfig,
+        customActivityPercentages: supplyActivityPercentages,
+        customSubcomponentPercentages: supplySubcomponentPercentages,
+        selectedSubcomponents: selectedSubcomponents,
+        updatedAt: new Date().toISOString()
+      };
 
-    // Calculate total applied percentage from all subcomponents
-    const totalAppliedPercentage = Object.values(supplySubcomponentPercentages).reduce((activitySum, subcomponents) => {
-      return activitySum + Object.values(subcomponents).reduce((subSum, percentage) => subSum + percentage, 0);
-    }, 0);
-    
-    const updatedSupply = {
-      ...selectedSupplyForConfig,
-      customActivityPercentages: { ...supplyActivityPercentages },
-      customSubcomponentPercentages: { ...supplySubcomponentPercentages },
-      selectedSubcomponents: { ...selectedSubcomponents },
-      appliedPercentage: totalAppliedPercentage,
-      appliedAmount: selectedSupplyForConfig.totalValue * (totalAppliedPercentage / 100),
-      updatedAt: new Date().toISOString()
-    };
+      // Update the supply in the service
+      ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
 
+      // Update the local state
+      setSupplies(prev => prev.map(s => 
+        s.id === selectedSupplyForConfig.id ? updatedSupply : s
+      ));
+
+      // Close the modal
+      handleCloseSupplyConfigureModal();
+    }
+  };
+
+  // Update handlers for configure modals
+  const handleEmployeeUpdate = (updatedEmployee: Employee) => {
+    // Update the employee in the service
+    ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
+
+    // Update the local state
+    setEmployees(prev => prev.map(e => 
+      e.id === updatedEmployee.id ? updatedEmployee : e
+    ));
+
+    // Update the selected employee for config if it's the same one
+    if (selectedEmployeeForConfig?.id === updatedEmployee.id) {
+      setSelectedEmployeeForConfig(updatedEmployee);
+    }
+  };
+
+  const handleContractorUpdate = (updatedContractor: Contractor) => {
+    // Update the contractor in the service
+    ExpensesService.saveContractor(selectedBusinessId, selectedYear, updatedContractor);
+
+    // Update the local state
+    setContractors(prev => prev.map(c => 
+      c.id === updatedContractor.id ? updatedContractor : c
+    ));
+
+    // Update the selected contractor for config if it's the same one
+    if (selectedContractorForConfig?.id === updatedContractor.id) {
+      setSelectedContractorForConfig(updatedContractor);
+    }
+  };
+
+  const handleSupplyUpdate = (updatedSupply: Supply) => {
+    // Update the supply in the service
     ExpensesService.saveSupply(selectedBusinessId, selectedYear, updatedSupply);
-    loadSupplies();
-    handleCloseSupplyConfigureModal();
-    onEdit();
+
+    // Update the local state
+    setSupplies(prev => prev.map(s => 
+      s.id === updatedSupply.id ? updatedSupply : s
+    ));
+
+    // Update the selected supply for config if it's the same one
+    if (selectedSupplyForConfig?.id === updatedSupply.id) {
+      setSelectedSupplyForConfig(updatedSupply);
+    }
   };
 
   const getSupplyActivities = () => {
@@ -514,7 +608,7 @@ export default function RDExpensesTab({
 
   const getSupplyActivitySubcomponents = (activityName: string) => {
     // Get QRA data for this activity to find subcomponents
-    const qraData = getQRAData(activityName);
+    const qraData = getQRADataSync(activityName);
     if (!qraData || !qraData.selectedSubcomponents) {
       return [];
     }
@@ -523,23 +617,27 @@ export default function RDExpensesTab({
       id: subcomponentId,
       name: subcomponent.subcomponent,
       phase: subcomponent.phase,
-      step: subcomponent.step
+      step: subcomponent.step,
+      timePercent: subcomponent.timePercent || 0,
+      frequencyPercent: subcomponent.frequencyPercent || 0,
+      yearPercent: subcomponent.yearPercent || 0,
+      isNonRD: subcomponent.isNonRD || false
     }));
   };
 
   const calculateSupplyAppliedPercentage = (supply: Supply): number => {
-    // If the supply has a saved appliedPercentage, use that (from modal configuration)
-    if (supply.appliedPercentage !== undefined && supply.appliedPercentage !== null) {
-      return supply.appliedPercentage;
-    }
+    const activities = getSupplyActivities();
+    if (activities.length === 0) return 0;
     
-    // Fallback to calculating from customSubcomponentPercentages (for backward compatibility)
-    if (!supply.customSubcomponentPercentages) return 0;
+    let totalApplied = 0;
+    activities.forEach(activity => {
+      const activityPercentage = supplyActivityPercentages[activity.name] || 0;
+      const appliedPercentage = getAppliedPercentage(activity.name);
+      const supplyContribution = (activityPercentage / 100) * appliedPercentage;
+      totalApplied += supplyContribution;
+    });
     
-    // Sum all subcomponent percentages across all activities
-    return Object.values(supply.customSubcomponentPercentages).reduce((activitySum, subcomponents) => {
-      return activitySum + Object.values(subcomponents).reduce((subSum, percentage) => subSum + percentage, 0);
-    }, 0);
+    return totalApplied;
   };
 
   const handleSubcomponentToggle = (activityName: string, subcomponentId: string) => {
@@ -614,30 +712,60 @@ export default function RDExpensesTab({
   };
 
   // Helper function to get QRA data
-  const getQRAData = (activityName: string): SubcomponentSelectionData | null => {
-    // QRA data is stored in localStorage with keys like: qra_${businessId}_${year}_${activityName}
-    const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activityName}`;
+  const getQRAData = async (activityName: string): Promise<SubcomponentSelectionData | null> => {
+    // Find the activity ID by name first
+    const STORAGE_KEY = 'businessInfoData';
+    const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    const business = savedData.businesses?.find((b: any) => b.id === selectedBusinessId);
+    const yearData = business?.years?.[selectedYear];
+    const activities = yearData?.activities || {};
+    
+    // Find activity ID by name
+    const activityEntry = Object.entries(activities).find(([id, activity]: [string, any]) => 
+      activity.name === activityName
+    );
+    
+    if (!activityEntry) {
+      console.warn(`Could not find activity with name: ${activityName}`);
+      return null;
+    }
+    
+    const activityId = activityEntry[0];
+    
+    // Try to load from Supabase first using the new service
+    try {
+      const supabaseData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
+      if (supabaseData) {
+        console.log(`[RDExpensesTab] Found QRA data in Supabase for activity: ${activityName}`);
+        return supabaseData;
+      }
+    } catch (error) {
+      console.warn(`[RDExpensesTab] Error loading from Supabase for ${activityName}:`, error);
+    }
+    
+    // Fallback to localStorage
+    const storageKey = `qra_${selectedBusinessId}_${selectedYear}_${activityId}`;
     const storedData = localStorage.getItem(storageKey);
     
     if (storedData) {
       try {
         return JSON.parse(storedData);
       } catch (error) {
-        console.warn(`Failed to parse QRA data for ${activityName}:`, error);
+        console.warn(`Failed to parse QRA data for ${activityName} (ID: ${activityId}):`, error);
         return null;
       }
     }
     
     // Fallback: check business state (legacy)
     const selectedBusiness = businesses.find(b => b.id === selectedBusinessId);
-    const yearData = selectedBusiness?.years?.[selectedYear];
-    const qraData = (yearData as any)?.qraData?.[activityName] || null;
+    const yearDataFromState = selectedBusiness?.years?.[selectedYear];
+    const qraData = (yearDataFromState as any)?.qraData?.[activityName] || null;
     
     // Debug logging if still not found
     if (!qraData) {
       const allKeys = Object.keys(localStorage);
       const qraKeys = allKeys.filter(k => k.includes('qra') && k.includes(selectedBusinessId.toString()) && k.includes(selectedYear.toString()));
-      console.log(`QRA data not found for activity: ${activityName}`);
+      console.log(`QRA data not found for activity: ${activityName} (ID: ${activityId})`);
       console.log(`Searched key: ${storageKey}`);
       console.log('Available QRA keys:', qraKeys);
     }
@@ -647,12 +775,8 @@ export default function RDExpensesTab({
 
   // Helper function to get applied percentage for an activity (matches Activities tab approach)
   const getAppliedPercentage = (activityName: string): number => {
-    const qraData = getQRAData(activityName);
-    if (!qraData) return 0;
-    
-    // Applied percentage is directly from the QRA data totalAppliedPercent
-    // This represents the percentage of time spent on qualifying R&D activities
-    return qraData.totalAppliedPercent || 0;
+    const qraData = getQRADataSync(activityName);
+    return qraData?.totalAppliedPercent || 0;
   };
 
   // Helper function to check if any QRA data exists for debugging
@@ -741,7 +865,7 @@ export default function RDExpensesTab({
       console.log(`  Activity object:`, JSON.stringify(activity, null, 2));
       
       // Initialize time percentages for subcomponents from QRA data (if available)
-      const qraData = getQRAData(activity.name);
+      const qraData = getQRADataSync(activity.name);
       if (qraData && qraData.selectedSubcomponents) {
         timePercentages[activity.name] = {};
         Object.entries(qraData.selectedSubcomponents).forEach(([subId, subData]) => {
@@ -795,7 +919,7 @@ export default function RDExpensesTab({
     updatedEmployee.appliedAmount = updatedEmployee.wage * (updatedEmployee.appliedPercentage / 100);
 
     // Save employee
-    ExpensesService.updateEmployee(selectedBusinessId, selectedYear, updatedEmployee);
+    ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
     
     // Refresh employees list
     loadEmployees();
@@ -843,7 +967,7 @@ export default function RDExpensesTab({
       const activities = getContractorActivities(contractor);
       const defaultTimePercentages: Record<string, Record<string, number>> = {};
       activities.forEach(activity => {
-        const qraData = getQRAData(activity.name);
+        const qraData = getQRADataSync(activity.name);
         if (qraData) {
           defaultTimePercentages[activity.name] = {};
           Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
@@ -926,7 +1050,7 @@ export default function RDExpensesTab({
       
       if (includeActivity && activity.active !== false) {
         // Get QRA data for this activity
-        const qraData = getQRAData(activity.name);
+        const qraData = getQRADataSync(activity.name);
         
         // Calculate applied percentage using the same approach as Activities tab
         const appliedPercent = getAppliedPercentage(activity.name);
@@ -958,69 +1082,41 @@ export default function RDExpensesTab({
   };
 
   // Calculate applied percentage for contractor (same as employee but with 65% rule applied separately)
-  const calculateContractorAppliedPercentage = (contractor: Contractor, activities: any[]): number => {
-    if (!activities || activities.length === 0) {
-      return 0;
-    }
-
-    let totalApplied = 0;
-
-    activities.forEach(activity => {
-      const contributedApplied = calculateContractorActivityAppliedPercentage(activity);
-      totalApplied += contributedApplied;
-    });
-    
-    return totalApplied;
-  };
+  // REMOVED: This function is now imported from useQRACalculations hook
 
   // Helper function to calculate applied percentage for a single contractor activity
   const calculateContractorActivityAppliedPercentage = (activity: any): number => {
-    let contributedApplied = 0;
+    // Get QRA data for this activity
+    const qraData = getQRADataSync(activity.name);
     
-    if (contractorPracticePercentages[activity.name] !== undefined) {
-      // Modal is open and user has adjusted practice percentage sliders
-      const basePracticePercent = contractorPracticePercentages[activity.name];
+    if (qraData?.selectedSubcomponents) {
+      // Calculate using FULL QRA FORMULA for each subcomponent
+      let activityTotalApplied = 0;
       
-      // Get QRA data to access frequency and year percentages
-      const qraData = getQRAData(activity.name);
+      Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
+        if (subConfig && !subConfig.isNonRD) {
+          // Get all four components of the QRA formula
+          const practicePercent = activity.currentPracticePercent || 0;
+          
+          // Time percentage from QRA data
+          const timePercent = subConfig.timePercent || 0;
+          
+          // Frequency and Year percentages from QRA data
+          const frequencyPercent = subConfig.frequencyPercent || 0;
+          const yearPercent = subConfig.yearPercent || 0;
+          
+          // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
+          const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
+          
+          activityTotalApplied += subcomponentApplied;
+        }
+      });
       
-      if (qraData?.selectedSubcomponents) {
-        // Calculate using FULL QRA FORMULA for each subcomponent
-        let activityTotalApplied = 0;
-        
-        Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
-          if (subConfig && !subConfig.isNonRD) {
-            // Get all four components of the QRA formula
-            const practicePercent = basePracticePercent;
-            
-            // Time percentage - use modal adjustment if available, otherwise QRA default
-            const activityTimePercentages = contractorTimePercentages[activity.name];
-            const timePercent = activityTimePercentages?.[subId] !== undefined 
-              ? activityTimePercentages[subId] 
-              : (subConfig.timePercent || 0);
-            
-            // Frequency and Year percentages from QRA data (not editable in modal)
-            const frequencyPercent = subConfig.frequencyPercent || 0;
-            const yearPercent = subConfig.yearPercent || 0;
-            
-            // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
-            const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
-            
-            activityTotalApplied += subcomponentApplied;
-          }
-        });
-        
-        contributedApplied = activityTotalApplied;
-      } else {
-        // No QRA subcomponents - fallback to simplified calculation
-        contributedApplied = basePracticePercent;
-      }
+      return activityTotalApplied;
     } else {
-      // Use the baseline applied percentage from Activities tab (already calculated with full QRA)
-      contributedApplied = activity.appliedPercent;
+      // Fallback to the baseline applied percentage
+      return activity.appliedPercent || 0;
     }
-    
-    return contributedApplied;
   };
 
   // Helper function to get activities for an employee's role - loads from Activities tab data
@@ -1056,7 +1152,7 @@ export default function RDExpensesTab({
       
       if (includeActivity && activity.active !== false) {
         // Get QRA data for this activity
-        const qraData = getQRAData(activity.name);
+        const qraData = getQRADataSync(activity.name);
         
         // Calculate applied percentage using the same approach as Activities tab
         const appliedPercent = getAppliedPercentage(activity.name);
@@ -1098,82 +1194,8 @@ export default function RDExpensesTab({
     return employeeActivities;
   };
 
-  // Helper function to calculate applied percentage for a single activity using full QRA formula
-  const calculateActivityAppliedPercentage = (activity: any): number => {
-    let contributedApplied = 0;
-    
-    if (employeePracticePercentages[activity.name] !== undefined) {
-      // Modal is open and user has adjusted practice percentage sliders
-      const basePracticePercent = employeePracticePercentages[activity.name];
-      
-      // Get QRA data to access frequency and year percentages
-      const qraData = getQRAData(activity.name);
-      
-      if (qraData?.selectedSubcomponents) {
-        // Calculate using FULL QRA FORMULA for each subcomponent
-        let activityTotalApplied = 0;
-        
-        Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
-          if (subConfig && !subConfig.isNonRD) {
-            // Get all four components of the QRA formula
-            const practicePercent = basePracticePercent;
-            
-            // Time percentage - use modal adjustment if available, otherwise QRA default
-            const activityTimePercentages = employeeTimePercentages[activity.name];
-            const timePercent = activityTimePercentages?.[subId] !== undefined 
-              ? activityTimePercentages[subId] 
-              : (subConfig.timePercent || 0);
-            
-            // Frequency and Year percentages from QRA data (not editable in modal)
-            const frequencyPercent = subConfig.frequencyPercent || 0;
-            const yearPercent = subConfig.yearPercent || 0;
-            
-            // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
-            const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
-            
-            activityTotalApplied += subcomponentApplied;
-          }
-        });
-        
-        contributedApplied = activityTotalApplied;
-      } else {
-        // No QRA subcomponents - fallback to simplified calculation
-        contributedApplied = basePracticePercent;
-      }
-    } else {
-      // Use the baseline applied percentage from Activities tab (already calculated with full QRA)
-      contributedApplied = activity.appliedPercent;
-    }
-    
-    return contributedApplied;
-  };
-
-  const calculateEmployeeAppliedPercentage = (employee: Employee, activities: any[]): number => {
-    console.log('=== CALCULATING APPLIED PERCENTAGE (FULL QRA FORMULA) ===');
-    console.log('Employee ID:', employee.id);
-    console.log('Available activities for calculation:', activities.map(a => a.name));
-    
-    if (!activities || activities.length === 0) {
-      console.log('No activities available for calculation');
-      return 0;
-    }
-
-    let totalApplied = 0;
-    
-    activities.forEach(activity => {
-      const contributedApplied = calculateActivityAppliedPercentage(activity);
-      
-      console.log(`Activity ${activity.name}:`, {
-        contributedApplied: contributedApplied.toFixed(6),
-        'SOURCE': employeePracticePercentages[activity.name] !== undefined ? 'modal_full_qra_calculation' : 'activities_tab_baseline_full_qra'
-      });
-      
-      totalApplied += contributedApplied;
-    });
-    
-    console.log('Final calculated total applied percentage (FULL QRA):', totalApplied.toFixed(6));
-    return totalApplied;
-  };
+  // REMOVED: calculateActivityAppliedPercentage and calculateEmployeeAppliedPercentage functions
+  // These are now imported from useQRACalculations hook
 
   const yearTotals = ExpensesService.calculateYearTotals(selectedBusinessId, selectedYear);
   const availableRoles = ExpensesService.getAvailableRoles(roles); // Now using roles with applied percentages
@@ -1221,6 +1243,25 @@ export default function RDExpensesTab({
 
   // Calculate federal credit for summary display
   const { finalCredit: federalCredit } = useFederalCreditCalculations(creditCalculatorInput);
+
+  const { getQRADataSync, calculateActivityAppliedPercentage, calculateEmployeeAppliedPercentage, calculateContractorAppliedPercentage } = useQRACalculations(selectedBusinessId, selectedYear);
+
+  // Add effect to load QRA data map
+  useEffect(() => {
+    const loadQRADataMap = async () => {
+      if (selectedBusinessId && selectedYear) {
+        try {
+          const data = await QRABuilderService.getAllQRAData(selectedBusinessId, selectedYear);
+          setQraDataMap(data);
+        } catch (error) {
+          console.error('Error loading QRA data map:', error);
+          setQraDataMap({});
+        }
+      }
+    };
+
+    loadQRADataMap();
+  }, [selectedBusinessId, selectedYear]);
 
   if (!isActivitiesApproved) {
     return (
@@ -1271,6 +1312,11 @@ export default function RDExpensesTab({
                 <CheckCircleIcon sx={{ ml: 1, verticalAlign: 'middle' }} />
               )}
             </Box>
+            {isExpensesApproved && approvalData && (
+              <Box sx={{ ml: 3, fontSize: 14 }}>
+                Approved: {new Date(approvalData.timestamp).toLocaleString()} (IP: {approvalData.ipAddress})
+              </Box>
+            )}
             <Chip 
               label={`${selectedYear}`} 
               size="small" 
@@ -1299,7 +1345,31 @@ export default function RDExpensesTab({
                 <InfoOutlinedIcon />
               </IconButton>
             </Tooltip>
-          </Box>
+            {isExpensesApproved ? (
+              <Button
+                variant="outlined"
+                color="inherit"
+                startIcon={<UnlockIcon />}
+                onClick={handleUnapprove}
+              >
+                Unapprove
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<LockIcon />}
+                onClick={handleApprove}
+                sx={{ 
+                  bgcolor: 'success.light', 
+                  color: 'success.contrastText', 
+                  '&:hover': { bgcolor: 'success.main' } 
+                }}
+              >
+                Approve
+              </Button>
+          )}
+        </Box>
         </Toolbar>
       </AppBar>
 
@@ -1348,7 +1418,7 @@ export default function RDExpensesTab({
             getEmployeeActivities={getEmployeeActivities}
             getRoleName={getRoleName}
           />
-        </Box>
+              </Box>
       )}
 
       {selectedExpenseType === 1 && (
@@ -1377,7 +1447,7 @@ export default function RDExpensesTab({
             getRoleName={getRoleName}
             disabled={isExpensesApproved}
           />
-        </Box>
+          </Box>
       )}
 
       {selectedExpenseType === 2 && (
@@ -1402,21 +1472,48 @@ export default function RDExpensesTab({
             calculateSupplyAppliedPercentage={calculateSupplyAppliedPercentage}
             disabled={isExpensesApproved}
           />
-        </Box>
+                    </Box>
       )}
 
       {selectedExpenseType === 3 && (
         <Box sx={{ p: 3 }}>
-          <ReportingDashboard
+          <ExpenseAnalytics
             employees={employees}
             contractors={contractors}
             supplies={supplies}
             selectedYear={selectedYear}
-            isExpensesApproved={isExpensesApproved}
-            creditCalculatorInput={creditCalculatorInput}
-            onExportReport={(type) => console.log(`Exporting ${type} report...`)}
+            selectedBusinessId={selectedBusinessId}
+            businessType={selectedBusiness?.entityType === 'C-Corporation' ? 'C-Corp' : 'Pass-Through'}
+            stateCode={selectedBusiness?.entityState}
+            employeeCount={employees.filter(emp => emp.isActive).length}
+            grossReceipts={selectedBusiness?.financialHistory?.find(f => f.year === selectedYear)?.grossReceipts}
+            businesses={businesses}
           />
-        </Box>
+          
+          <ComplianceReport
+            employees={employees}
+            contractors={contractors}
+            supplies={supplies}
+            selectedYear={selectedYear}
+            selectedBusinessId={selectedBusinessId}
+            businessType={selectedBusiness?.entityType === 'C-Corporation' ? 'C-Corp' : 'Pass-Through'}
+            stateCode={selectedBusiness?.entityState}
+            employeeCount={employees.filter(emp => emp.isActive).length}
+            grossReceipts={selectedBusiness?.financialHistory?.find(f => f.year === selectedYear)?.grossReceipts}
+            businesses={businesses}
+          />
+          <QREDataExportPanel
+            selectedYear={selectedYear}
+            selectedBusinessId={selectedBusinessId}
+            businessName={selectedBusiness?.businessName || ''}
+            employees={employees}
+            contractors={contractors}
+            supplies={supplies}
+            activities={researchActivities}
+            qraDataMap={qraDataMap}
+            isExpensesApproved={isExpensesApproved}
+          />
+                    </Box>
       )}
 
       {/* Employee Configure Modal */}
@@ -1429,20 +1526,20 @@ export default function RDExpensesTab({
         employeePracticePercentages={employeePracticePercentages}
         employeeTimePercentages={employeeTimePercentages}
         onPracticePercentageChange={(activityName, percentage) => {
-          setEmployeePracticePercentages(prev => ({
-            ...prev,
+                                setEmployeePracticePercentages(prev => ({
+                                  ...prev,
             [activityName]: percentage
-          }));
-        }}
+                                }));
+                              }}
         onTimePercentageChange={(activityName, subcomponentId, percentage) => {
-          setEmployeeTimePercentages(prev => ({
-            ...prev,
+                                              setEmployeeTimePercentages(prev => ({
+                                                ...prev,
             [activityName]: {
               ...prev[activityName],
               [subcomponentId]: percentage
-            }
-          }));
-        }}
+                                                }
+                                              }));
+                                            }}
         getEmployeeActivities={getEmployeeActivities}
         calculateActivityAppliedPercentage={calculateActivityAppliedPercentage}
         calculateEmployeeAppliedPercentage={calculateEmployeeAppliedPercentage}
@@ -1451,6 +1548,7 @@ export default function RDExpensesTab({
         hasAnyQRAData={hasAnyQRAData}
         selectedBusinessId={selectedBusinessId}
         selectedYear={selectedYear}
+        onEmployeeUpdate={handleEmployeeUpdate}
       />
 
       {/* Contractor Configure Modal */}
@@ -1472,6 +1570,7 @@ export default function RDExpensesTab({
         roles={roles}
         selectedYear={selectedYear}
         selectedBusinessId={selectedBusinessId}
+        onContractorUpdate={handleContractorUpdate}
       />
 
       {/* Supply Configure Modal */}
@@ -1493,6 +1592,7 @@ export default function RDExpensesTab({
         getSubcomponentPercentage={getSubcomponentPercentage}
         isSubcomponentSelected={isSubcomponentSelected}
         getActivityColor={getActivityColor}
+        onSupplyUpdate={handleSupplyUpdate}
       />
     </Box>
   );

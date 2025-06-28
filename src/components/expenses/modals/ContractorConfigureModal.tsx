@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,9 +10,15 @@ import {
   IconButton,
   Slider,
   Card,
-  Chip
+  Chip,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Collapse
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Edit as EditIcon } from '@mui/icons-material';
 import { Contractor } from '../../../types/Employee';
 import { Role } from '../../../types/Business';
 import { getRoleName } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/roleHelpers';
@@ -37,6 +43,7 @@ interface ContractorConfigureModalProps {
   roles: Role[];
   selectedYear: number;
   selectedBusinessId: string;
+  onContractorUpdate?: (updatedContractor: Contractor) => void;
 }
 
 export default function ContractorConfigureModal({
@@ -56,9 +63,108 @@ export default function ContractorConfigureModal({
   getActivityColor,
   roles,
   selectedYear,
-  selectedBusinessId
+  selectedBusinessId,
+  onContractorUpdate
 }: ContractorConfigureModalProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Partial<Contractor>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Initialize edit data when modal opens
+  React.useEffect(() => {
+    if (open && selectedContractor) {
+      setEditData({
+        contractorType: selectedContractor.contractorType,
+        firstName: selectedContractor.firstName,
+        lastName: selectedContractor.lastName,
+        businessName: selectedContractor.businessName,
+        totalAmount: selectedContractor.totalAmount,
+        roleId: selectedContractor.roleId,
+        customRoleName: selectedContractor.customRoleName
+      });
+      setValidationErrors({});
+    }
+  }, [open, selectedContractor]);
+
   if (!selectedContractor) return null;
+
+  const handleEditToggle = () => {
+    if (isEditing) {
+      // Cancel editing - reset to original values
+      setEditData({
+        contractorType: selectedContractor.contractorType,
+        firstName: selectedContractor.firstName,
+        lastName: selectedContractor.lastName,
+        businessName: selectedContractor.businessName,
+        totalAmount: selectedContractor.totalAmount,
+        roleId: selectedContractor.roleId,
+        customRoleName: selectedContractor.customRoleName
+      });
+      setValidationErrors({});
+    }
+    setIsEditing(!isEditing);
+  };
+
+  const validateEditData = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!editData.contractorType) {
+      errors.contractorType = 'Contractor type is required';
+    }
+
+    if (editData.contractorType === 'individual') {
+      if (!editData.firstName?.trim()) {
+        errors.firstName = 'First name is required for individual contractors';
+      }
+      if (!editData.lastName?.trim()) {
+        errors.lastName = 'Last name is required for individual contractors';
+      }
+    } else if (editData.contractorType === 'business') {
+      if (!editData.businessName?.trim()) {
+        errors.businessName = 'Business name is required for business contractors';
+      }
+    }
+
+    if (!editData.totalAmount || editData.totalAmount <= 0) {
+      errors.totalAmount = 'Total amount must be greater than 0';
+    }
+
+    if (!editData.roleId) {
+      errors.roleId = 'Role is required';
+    }
+
+    if (editData.roleId === 'other' && !editData.customRoleName?.trim()) {
+      errors.customRoleName = 'Custom role name is required when "Other" is selected';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveEdit = () => {
+    if (!validateEditData()) return;
+
+    const updatedContractor: Contractor = {
+      ...selectedContractor,
+      ...editData,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (onContractorUpdate) {
+      onContractorUpdate(updatedContractor);
+    }
+
+    setIsEditing(false);
+    setValidationErrors({});
+  };
+
+  const handleInputChange = (field: keyof Contractor, value: any) => {
+    setEditData(prev => ({ ...prev, [field]: value }));
+    // Clear validation error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
 
   return (
     <Dialog
@@ -96,6 +202,151 @@ export default function ContractorConfigureModal({
 
       <DialogContent sx={{ p: 0 }}>
         <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+          {/* Editable Contractor Information Section */}
+          <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Contractor Information
+              </Typography>
+              <Button
+                startIcon={<EditIcon />}
+                onClick={handleEditToggle}
+                variant={isEditing ? "contained" : "outlined"}
+                size="small"
+              >
+                {isEditing ? 'Cancel Edit' : 'Edit Info'}
+              </Button>
+            </Box>
+
+            <Collapse in={isEditing}>
+              <Card sx={{ p: 3, mb: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <FormControl fullWidth error={!!validationErrors.contractorType}>
+                    <InputLabel>Contractor Type</InputLabel>
+                    <Select
+                      value={editData.contractorType || ''}
+                      onChange={(e) => handleInputChange('contractorType', e.target.value)}
+                      label="Contractor Type"
+                    >
+                      <MenuItem value="individual">Individual</MenuItem>
+                      <MenuItem value="business">Business</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {editData.contractorType === 'individual' ? (
+                    <>
+                      <TextField
+                        label="First Name"
+                        value={editData.firstName || ''}
+                        onChange={(e) => handleInputChange('firstName', e.target.value)}
+                        error={!!validationErrors.firstName}
+                        helperText={validationErrors.firstName}
+                        fullWidth
+                      />
+                      <TextField
+                        label="Last Name"
+                        value={editData.lastName || ''}
+                        onChange={(e) => handleInputChange('lastName', e.target.value)}
+                        error={!!validationErrors.lastName}
+                        helperText={validationErrors.lastName}
+                        fullWidth
+                      />
+                    </>
+                  ) : (
+                    <TextField
+                      label="Business Name"
+                      value={editData.businessName || ''}
+                      onChange={(e) => handleInputChange('businessName', e.target.value)}
+                      error={!!validationErrors.businessName}
+                      helperText={validationErrors.businessName}
+                      fullWidth
+                    />
+                  )}
+
+                  <TextField
+                    label="Total Amount"
+                    type="number"
+                    value={editData.totalAmount || ''}
+                    onChange={(e) => handleInputChange('totalAmount', parseFloat(e.target.value) || 0)}
+                    error={!!validationErrors.totalAmount}
+                    helperText={validationErrors.totalAmount}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: <Typography variant="body2" sx={{ mr: 1 }}>$</Typography>
+                    }}
+                  />
+
+                  <FormControl fullWidth error={!!validationErrors.roleId}>
+                    <InputLabel>Role</InputLabel>
+                    <Select
+                      value={editData.roleId || ''}
+                      onChange={(e) => handleInputChange('roleId', e.target.value)}
+                      label="Role"
+                    >
+                      {roles.map((role) => (
+                        <MenuItem key={role.id} value={role.id}>
+                          {role.name}
+                        </MenuItem>
+                      ))}
+                      <MenuItem value="other">Other</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {editData.roleId === 'other' && (
+                    <TextField
+                      label="Custom Role Name"
+                      value={editData.customRoleName || ''}
+                      onChange={(e) => handleInputChange('customRoleName', e.target.value)}
+                      error={!!validationErrors.customRoleName}
+                      helperText={validationErrors.customRoleName}
+                      fullWidth
+                    />
+                  )}
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+                  <Button variant="outlined" onClick={handleEditToggle}>
+                    Cancel
+                  </Button>
+                  <Button variant="contained" onClick={handleSaveEdit}>
+                    Save Changes
+                  </Button>
+                </Box>
+              </Card>
+            </Collapse>
+
+            {/* Read-only summary when not editing */}
+            <Collapse in={!isEditing}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Type</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {selectedContractor.contractorType === 'individual' ? 'Individual' : 'Business'}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Name</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {selectedContractor.contractorType === 'individual' 
+                      ? `${selectedContractor.firstName} ${selectedContractor.lastName}`
+                      : selectedContractor.businessName}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Amount</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {formatCurrency(selectedContractor.totalAmount)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Role</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {getRoleName(selectedContractor.roleId, selectedContractor.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
+                  </Typography>
+                </Box>
+              </Box>
+            </Collapse>
+          </Box>
+
           {/* Practice Percentage Breakdown */}
           <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>

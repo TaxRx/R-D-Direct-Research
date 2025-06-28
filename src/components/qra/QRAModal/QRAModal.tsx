@@ -521,7 +521,7 @@ export const QRAModal: React.FC<QRAModalProps> = ({
                               {/* Role Selection */}
                               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                                 {roles.map(role => {
-                                  const isResearchLeader = role.id === 'research-leader';
+                                  const isResearchLeader = role.name === 'Research Leader';
                                   const isRoleSelected = subMetrics?.selectedRoles?.includes(role.id) ?? true;
                                   
                                   return (

@@ -2,9 +2,9 @@
 // This file defines all interfaces needed for modularizing RDExpensesTab.tsx
 // while preserving every single interaction and functionality
 
+import React, { ReactNode } from 'react';
 import { Business, RoleNode, Role } from './Business';
 import { Employee, Contractor, Supply, ExpenseFormData, ContractorFormData, SupplyFormData } from './Employee';
-import { SubcomponentSelectionData } from '../components/qra/SimpleQRAModal';
 
 // ============================================================================
 // CORE STATE INTERFACES
@@ -359,4 +359,122 @@ export interface ValidationFunctions {
   validateContractor: (contractor: Contractor) => ValidationResult;
   validateSupply: (supply: Supply) => ValidationResult;
   validateModalData: (modalType: 'employee' | 'contractor' | 'supply', data: any) => ValidationResult;
+}
+
+// =====================================================
+// UNIFIED QRA DATA TYPES
+// =====================================================
+
+export interface SubcomponentConfig {
+  phase: string;
+  step: string;
+  subcomponent: { id: string; title: string } | string;
+  timePercent: number;
+  frequencyPercent: number;
+  yearPercent: number;
+  startYear?: number;
+  selectedRoles: string[];
+  appliedPercent?: number;
+  isNonRD?: boolean;
+}
+
+export interface StepSummary {
+  stepName: string;
+  timePercent: number;
+  subcomponentCount: number;
+  totalAppliedPercent: number;
+  isLocked: boolean;
+}
+
+export interface SubcomponentSelectionData {
+  // Core selection data
+  selectedSubcomponents: Record<string, SubcomponentConfig>;
+  totalAppliedPercent: number;
+  
+  // Step-level data
+  stepFrequencies?: Record<string, number>;
+  stepTimeMap?: Record<string, number>;
+  stepTimeLocked?: Record<string, boolean>;
+  
+  // Enhanced metadata
+  activityName?: string;
+  practicePercent: number;
+  currentYear?: number;
+  selectedRoles?: string[];
+  
+  // Calculation metadata
+  calculationFormula?: string;
+  lastUpdated: string;
+  
+  // Summary statistics
+  totalSubcomponents?: number;
+  rdSubcomponents?: number;
+  nonRdSubcomponents?: number;
+  
+  // Step-level summaries
+  stepSummaries?: Record<string, StepSummary>;
+  
+  // Legacy compatibility
+  nonRDTime?: number;
+  isLocked?: boolean;
+}
+
+// =====================================================
+// CONFIGURATION TYPES
+// =====================================================
+
+export interface EmployeeConfiguration {
+  id?: string;
+  employeeId: string;
+  employeeName: string;
+  practicePercentages: Record<string, number>;
+  timePercentages: Record<string, Record<string, number>>;
+  roleAssignments: Record<string, string>;
+  appliedPercentage: number;
+  appliedAmount: number;
+  isLocked: boolean;
+}
+
+export interface ContractorConfiguration {
+  id?: string;
+  contractorId: string;
+  contractorName: string;
+  contractorType: 'individual' | 'business';
+  practicePercentages: Record<string, number>;
+  timePercentages: Record<string, Record<string, number>>;
+  roleAssignments: Record<string, string>;
+  appliedPercentage: number;
+  appliedAmount: number;
+  isLocked: boolean;
+}
+
+export interface SupplyConfiguration {
+  id?: string;
+  supplyId: string;
+  supplyName: string;
+  supplyCategory?: string;
+  activityPercentages: Record<string, number>;
+  subcomponentPercentages: Record<string, Record<string, number>>;
+  selectedSubcomponents: Record<string, string[]>;
+  appliedPercentage: number;
+  appliedAmount: number;
+  isLocked: boolean;
+}
+
+export interface ResearchActivitySelection {
+  id?: string;
+  researchActivityId: string;
+  isSelected: boolean;
+  customName?: string;
+  customDescription?: string;
+  practicePercent: number;
+}
+
+export interface ResearchActivityAssignment {
+  id?: string;
+  researchActivityId: string;
+  assigneeType: 'employee' | 'contractor';
+  assigneeId: string;
+  timePercentage: number;
+  roleId?: string;
 } 

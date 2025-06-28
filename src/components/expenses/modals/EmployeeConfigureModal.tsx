@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -10,9 +10,19 @@ import {
   DialogActions,
   IconButton,
   Slider,
-  Chip
+  Chip,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  FormControlLabel,
+  Checkbox,
+  Collapse,
+  Divider,
+  Alert
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Edit as EditIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { Employee } from '../../../types/Employee';
 import { Role } from '../../../types/Business';
 import { getRoleName } from '../../../pages/QRABuilderTabs/RDExpensesTab/utils/roleHelpers';
@@ -36,6 +46,7 @@ interface EmployeeConfigureModalProps {
   hasAnyQRAData: () => boolean;
   selectedBusinessId: string;
   selectedYear: number;
+  onEmployeeUpdate?: (updatedEmployee: Employee) => void;
 }
 
 export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
@@ -55,9 +66,97 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
   getActivityColor,
   hasAnyQRAData,
   selectedBusinessId,
-  selectedYear
+  selectedYear,
+  onEmployeeUpdate
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Partial<Employee>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Initialize edit data when modal opens
+  React.useEffect(() => {
+    if (open && employee) {
+      setEditData({
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        wage: employee.wage,
+        roleId: employee.roleId,
+        customRoleName: employee.customRoleName,
+        isBusinessOwner: employee.isBusinessOwner
+      });
+      setValidationErrors({});
+    }
+  }, [open, employee]);
+
   if (!employee) return null;
+
+  const handleEditToggle = () => {
+    if (isEditing) {
+      // Cancel editing - reset to original values
+      setEditData({
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        wage: employee.wage,
+        roleId: employee.roleId,
+        customRoleName: employee.customRoleName,
+        isBusinessOwner: employee.isBusinessOwner
+      });
+      setValidationErrors({});
+    }
+    setIsEditing(!isEditing);
+  };
+
+  const validateEditData = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!editData.firstName?.trim()) {
+      errors.firstName = 'First name is required';
+    }
+
+    if (!editData.lastName?.trim()) {
+      errors.lastName = 'Last name is required';
+    }
+
+    if (!editData.wage || editData.wage <= 0) {
+      errors.wage = 'Wage must be greater than 0';
+    }
+
+    if (!editData.roleId) {
+      errors.roleId = 'Role is required';
+    }
+
+    if (editData.roleId === 'other' && !editData.customRoleName?.trim()) {
+      errors.customRoleName = 'Custom role name is required when "Other" is selected';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveEdit = () => {
+    if (!validateEditData()) return;
+
+    const updatedEmployee: Employee = {
+      ...employee,
+      ...editData,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (onEmployeeUpdate) {
+      onEmployeeUpdate(updatedEmployee);
+    }
+
+    setIsEditing(false);
+    setValidationErrors({});
+  };
+
+  const handleInputChange = (field: keyof Employee, value: any) => {
+    setEditData(prev => ({ ...prev, [field]: value }));
+    // Clear validation error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
 
   return (
     <Dialog
@@ -93,6 +192,130 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
 
       <DialogContent sx={{ p: 0 }}>
         <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+          {/* Editable Employee Information Section */}
+          <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Employee Information
+              </Typography>
+              <Button
+                startIcon={isEditing ? <ExpandLessIcon /> : <EditIcon />}
+                onClick={handleEditToggle}
+                variant={isEditing ? "contained" : "outlined"}
+                size="small"
+              >
+                {isEditing ? 'Cancel Edit' : 'Edit Info'}
+              </Button>
+            </Box>
+
+            <Collapse in={isEditing}>
+              <Card sx={{ p: 3, mb: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <TextField
+                    label="First Name"
+                    value={editData.firstName || ''}
+                    onChange={(e) => handleInputChange('firstName', e.target.value)}
+                    error={!!validationErrors.firstName}
+                    helperText={validationErrors.firstName}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Last Name"
+                    value={editData.lastName || ''}
+                    onChange={(e) => handleInputChange('lastName', e.target.value)}
+                    error={!!validationErrors.lastName}
+                    helperText={validationErrors.lastName}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Wage"
+                    type="number"
+                    value={editData.wage || ''}
+                    onChange={(e) => handleInputChange('wage', parseFloat(e.target.value) || 0)}
+                    error={!!validationErrors.wage}
+                    helperText={validationErrors.wage}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: <Typography variant="body2" sx={{ mr: 1 }}>$</Typography>
+                    }}
+                  />
+                  <FormControl fullWidth error={!!validationErrors.roleId}>
+                    <InputLabel>Role</InputLabel>
+                    <Select
+                      value={editData.roleId || ''}
+                      onChange={(e) => handleInputChange('roleId', e.target.value)}
+                      label="Role"
+                    >
+                      {roles.map((role) => (
+                        <MenuItem key={role.id} value={role.id}>
+                          {role.name}
+                        </MenuItem>
+                      ))}
+                      <MenuItem value="other">Other</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {editData.roleId === 'other' && (
+                    <TextField
+                      label="Custom Role Name"
+                      value={editData.customRoleName || ''}
+                      onChange={(e) => handleInputChange('customRoleName', e.target.value)}
+                      error={!!validationErrors.customRoleName}
+                      helperText={validationErrors.customRoleName}
+                      fullWidth
+                    />
+                  )}
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={editData.isBusinessOwner || false}
+                        onChange={(e) => handleInputChange('isBusinessOwner', e.target.checked)}
+                      />
+                    }
+                    label="Business Owner"
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+                  <Button variant="outlined" onClick={handleEditToggle}>
+                    Cancel
+                  </Button>
+                  <Button variant="contained" onClick={handleSaveEdit}>
+                    Save Changes
+                  </Button>
+                </Box>
+              </Card>
+            </Collapse>
+
+            {/* Read-only summary when not editing */}
+            <Collapse in={!isEditing}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Name</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {employee.firstName} {employee.lastName}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Wage</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    ${employee.wage.toLocaleString()}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Role</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {getRoleName(employee.roleId, employee.customRoleName, roles, NON_RD_ROLE, OTHER_ROLE)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Owner Status</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {employee.isBusinessOwner ? 'Owner' : 'Employee'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Collapse>
+          </Box>
+
           {/* Practice Percentage Breakdown */}
           <Box sx={{ p: 3, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
             <Typography variant="h6" gutterBottom>

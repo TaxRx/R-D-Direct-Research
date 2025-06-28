@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 
 export interface CreditCalculatorInput {
   currentYearQREs: number;
-  priorYearQREs: number[]; // [y-1, y-2, y-3]
+  priorYearQREs: number[]; // [y-1, y-2, y-3, y-4]
   priorYearGrossReceipts: number[]; // [y-1, y-2, y-3, y-4]
   businessType: 'C-Corp' | 'Pass-Through';
   overrideTaxRate?: number;
@@ -29,6 +29,7 @@ export const useFederalCreditCalculations = (input: CreditCalculatorInput) => {
   const [apply280c, setApply280c] = useState(true);
 
   const isStandardMethodAvailable = useMemo(() => {
+    // Standard method requires at least 4 years of data and all gross receipts > 0
     return priorYearQREs.length >= 4 && priorYearGrossReceipts.length >= 4 && priorYearGrossReceipts.every(r => r > 0);
   }, [priorYearQREs, priorYearGrossReceipts]);
 
@@ -43,9 +44,9 @@ export const useFederalCreditCalculations = (input: CreditCalculatorInput) => {
       const validPriorYearQREs = priorYearQREs.slice(0, 3).filter(qre => qre > 0);
       if (validPriorYearQREs.length === 3) {
         const ascBase = validPriorYearQREs.reduce((sum, qre) => sum + qre, 0) / 3;
-        return ASC_RATE * (currentYearQREs - 0.5 * ascBase);
+        return Math.round(ASC_RATE * (currentYearQREs - 0.5 * ascBase));
       } else {
-        return ASC_RATE_NO_BASE * currentYearQREs;
+        return Math.round(ASC_RATE_NO_BASE * currentYearQREs);
       }
     }
 
@@ -59,7 +60,7 @@ export const useFederalCreditCalculations = (input: CreditCalculatorInput) => {
         }
 
         const credit = STANDARD_CREDIT_RATE * (currentYearQREs - baseAmount);
-        return credit; // Can be negative for display purposes
+        return Math.round(credit); // Can be negative for display purposes
     }
 
     return 0;
@@ -69,7 +70,7 @@ export const useFederalCreditCalculations = (input: CreditCalculatorInput) => {
     let calculatedCredit = grossCredit;
     
     if (apply280c) {
-      calculatedCredit = grossCredit * SECTION_280C_RATE;
+      calculatedCredit = Math.round(grossCredit * SECTION_280C_RATE);
     }
     
     // Ensure final credit is never less than 0
