@@ -143,7 +143,7 @@ export default function RDExpensesTab({
   const loadEmployees = useCallback(() => {
     const employeeData = ExpensesService.getEmployees(selectedBusinessId, selectedYear);
     
-    // Update employees with 0% applied percentage by calculating from their activities
+    // Update employees with calculated applied percentages
     const updatedEmployees = employeeData.map(employee => {
       // Check if employee has custom configuration
       const hasCustomPracticePercentages = employee.customPracticePercentages && 
@@ -151,33 +151,31 @@ export default function RDExpensesTab({
       const hasCustomTimePercentages = employee.customTimePercentages && 
         Object.keys(employee.customTimePercentages).length > 0;
       
-      // If employee has custom configuration, keep their current applied percentage
-      if (hasCustomPracticePercentages || hasCustomTimePercentages) {
-        return employee;
+      const employeeActivities = getEmployeeActivities(employee);
+      
+      // Calculate applied percentage using custom percentages if available
+      const calculatedAppliedPercentage = calculateEmployeeAppliedPercentage(
+        employee, 
+        employeeActivities,
+        hasCustomPracticePercentages ? employee.customPracticePercentages : undefined,
+        hasCustomTimePercentages ? employee.customTimePercentages : undefined
+      );
+      
+      // Always update the applied percentage to reflect current calculations
+      const updatedEmployee = {
+        ...employee,
+        appliedPercentage: calculatedAppliedPercentage,
+        appliedAmount: employee.wage * (calculatedAppliedPercentage / 100),
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Save the updated employee if the applied percentage changed
+      if (Math.abs(employee.appliedPercentage - calculatedAppliedPercentage) > 0.01) {
+        console.log(`Updating employee ${employee.firstName} ${employee.lastName} applied percentage from ${employee.appliedPercentage.toFixed(2)}% to ${calculatedAppliedPercentage.toFixed(2)}%`);
+        ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
       }
       
-      // If employee has 0% applied percentage, recalculate from activities
-      if (employee.appliedPercentage === 0) {
-        const employeeActivities = getEmployeeActivities(employee);
-        const calculatedAppliedPercentage = calculateEmployeeAppliedPercentage(employee, employeeActivities);
-        
-        if (calculatedAppliedPercentage > 0) {
-          console.log(`Updating employee ${employee.firstName} ${employee.lastName} applied percentage from 0% to ${calculatedAppliedPercentage.toFixed(2)}%`);
-          
-          const updatedEmployee = {
-            ...employee,
-            appliedPercentage: calculatedAppliedPercentage,
-            appliedAmount: employee.wage * (calculatedAppliedPercentage / 100),
-            updatedAt: new Date().toISOString()
-          };
-          
-          // Save the updated employee
-          ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
-          return updatedEmployee;
-        }
-      }
-      
-      return employee;
+      return updatedEmployee;
     });
     
     setEmployees(updatedEmployees);
@@ -945,6 +943,11 @@ export default function RDExpensesTab({
   const handleSaveEmployeeConfiguration = () => {
     if (!selectedEmployeeForConfig) return;
 
+    console.log('=== SAVING EMPLOYEE CONFIGURATION ===');
+    console.log('Selected employee:', selectedEmployeeForConfig);
+    console.log('Custom practice percentages:', employeePracticePercentages);
+    console.log('Custom time percentages:', employeeTimePercentages);
+
     // Update employee with new configuration
     const updatedEmployee: Employee = {
       ...selectedEmployeeForConfig,
@@ -952,7 +955,9 @@ export default function RDExpensesTab({
       customTimePercentages: { ...employeeTimePercentages },
       appliedPercentage: calculateEmployeeAppliedPercentage(
         selectedEmployeeForConfig, 
-        getEmployeeActivities(selectedEmployeeForConfig)
+        getEmployeeActivities(selectedEmployeeForConfig),
+        employeePracticePercentages,
+        employeeTimePercentages
       ),
       isLocked: true, // Automatically lock when user saves changes
       updatedAt: new Date().toISOString()
@@ -961,11 +966,15 @@ export default function RDExpensesTab({
     // Update applied amount based on new applied percentage
     updatedEmployee.appliedAmount = updatedEmployee.wage * (updatedEmployee.appliedPercentage / 100);
 
+    console.log('Updated employee:', updatedEmployee);
+
     // Save employee
     ExpensesService.saveEmployee(selectedBusinessId, selectedYear, updatedEmployee);
     
     // Refresh employees list
     loadEmployees();
+    
+    console.log('Employee saved and list refreshed');
     
     // Close modal
     setConfigureModalOpen(false);
@@ -1188,12 +1197,13 @@ export default function RDExpensesTab({
   // Calculate federal credit for summary display
   const { finalCredit: federalCredit } = useFederalCreditCalculations(creditCalculatorInput);
 
-  // Implement QRA calculation functions directly
+  // Helper function to calculate applied percentage for a single employee activity
   const calculateActivityAppliedPercentage = (
     activity: any,
     practicePercentages?: Record<string, number>,
     timePercentages?: Record<string, Record<string, number>>
   ): number => {
+    // Get QRA data for this activity
     const qraData = getQRADataSync(activity.name);
     
     if (qraData?.selectedSubcomponents) {
@@ -1244,65 +1254,6 @@ export default function RDExpensesTab({
     });
     
     return totalApplied;
-  };
-
-  const calculateContractorAppliedPercentage = (
-    contractor: any, 
-    activities: any[],
-    practicePercentages?: Record<string, number>,
-    timePercentages?: Record<string, Record<string, number>>
-  ): number => {
-    if (!activities || activities.length === 0) {
-      return 0;
-    }
-
-    let totalApplied = 0;
-    
-    activities.forEach(activity => {
-      const contributedApplied = calculateContractorActivityAppliedPercentage(activity, practicePercentages, timePercentages);
-      totalApplied += contributedApplied;
-    });
-    
-    return totalApplied;
-  };
-
-  // Helper function to calculate applied percentage for a single contractor activity
-  const calculateContractorActivityAppliedPercentage = (
-    activity: any, 
-    practicePercentages?: Record<string, number>,
-    timePercentages?: Record<string, Record<string, number>>
-  ): number => {
-    // Get QRA data for this activity
-    const qraData = getQRADataSync(activity.name);
-    
-    if (qraData?.selectedSubcomponents) {
-      // Calculate using FULL QRA FORMULA for each subcomponent
-      let activityTotalApplied = 0;
-      
-      Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
-        if (subConfig && !subConfig.isNonRD) {
-          // Get practice percentage from modal state or fallback to activity data
-          const practicePercent = practicePercentages?.[activity.name] ?? activity.currentPracticePercent ?? 0;
-          
-          // Get time percentage from modal state or fallback to QRA data
-          const timePercent = timePercentages?.[activity.name]?.[subId] ?? subConfig.timePercent ?? 0;
-          
-          // Frequency and Year percentages from QRA data (these don't change in modal)
-          const frequencyPercent = subConfig.frequencyPercent || 0;
-          const yearPercent = subConfig.yearPercent || 0;
-          
-          // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
-          const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
-          
-          activityTotalApplied += subcomponentApplied;
-        }
-      });
-      
-      return activityTotalApplied;
-    } else {
-      // Fallback to the baseline applied percentage
-      return qraData?.totalAppliedPercent || 0;
-    }
   };
 
   // Helper function to get activities for an employee's role - loads from Activities tab data
@@ -1374,6 +1325,65 @@ export default function RDExpensesTab({
     return employeeActivities;
   };
 
+  const calculateContractorAppliedPercentage = (
+    contractor: any, 
+    activities: any[],
+    practicePercentages?: Record<string, number>,
+    timePercentages?: Record<string, Record<string, number>>
+  ): number => {
+    if (!activities || activities.length === 0) {
+      return 0;
+    }
+
+    let totalApplied = 0;
+    
+    activities.forEach(activity => {
+      const contributedApplied = calculateContractorActivityAppliedPercentage(activity, practicePercentages, timePercentages);
+      totalApplied += contributedApplied;
+    });
+    
+    return totalApplied;
+  };
+
+  // Helper function to calculate applied percentage for a single contractor activity
+  const calculateContractorActivityAppliedPercentage = (
+    activity: any, 
+    practicePercentages?: Record<string, number>,
+    timePercentages?: Record<string, Record<string, number>>
+  ): number => {
+    // Get QRA data for this activity
+    const qraData = getQRADataSync(activity.name);
+    
+    if (qraData?.selectedSubcomponents) {
+      // Calculate using FULL QRA FORMULA for each subcomponent
+      let activityTotalApplied = 0;
+      
+      Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
+        if (subConfig && !subConfig.isNonRD) {
+          // Get practice percentage from modal state or fallback to activity data
+          const practicePercent = practicePercentages?.[activity.name] ?? activity.currentPracticePercent ?? 0;
+          
+          // Get time percentage from modal state or fallback to QRA data
+          const timePercent = timePercentages?.[activity.name]?.[subId] ?? subConfig.timePercent ?? 0;
+          
+          // Frequency and Year percentages from QRA data (these don't change in modal)
+          const frequencyPercent = subConfig.frequencyPercent || 0;
+          const yearPercent = subConfig.yearPercent || 0;
+          
+          // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
+          const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
+          
+          activityTotalApplied += subcomponentApplied;
+        }
+      });
+      
+      return activityTotalApplied;
+    } else {
+      // Fallback to the baseline applied percentage
+      return qraData?.totalAppliedPercent || 0;
+    }
+  };
+
   // Calculate year totals in real-time, taking into account current custom percentages
   const calculateRealTimeYearTotals = useCallback(() => {
     console.log('=== CALCULATING REAL-TIME YEAR TOTALS ===');
@@ -1393,8 +1403,27 @@ export default function RDExpensesTab({
       let appliedPercentage;
       let appliedAmount;
       
-      if (hasCustomPracticePercentages || hasCustomTimePercentages) {
-        // Use real-time calculation with custom percentages
+      // If this is the employee being configured in the modal, use modal state
+      const isBeingConfigured = selectedEmployeeForConfig && emp.id === selectedEmployeeForConfig.id;
+      
+      if (isBeingConfigured && (Object.keys(employeePracticePercentages).length > 0 || Object.keys(employeeTimePercentages).length > 0)) {
+        // Use current modal state for real-time calculation
+        appliedPercentage = calculateEmployeeAppliedPercentage(
+          emp, 
+          getEmployeeActivities(emp),
+          employeePracticePercentages,
+          employeeTimePercentages
+        );
+        appliedAmount = emp.wage * (appliedPercentage / 100);
+        console.log(`Employee ${emp.firstName} ${emp.lastName} (being configured):`, {
+          wage: emp.wage,
+          appliedPercentage: appliedPercentage,
+          appliedAmount: appliedAmount,
+          modalPracticePercentages: employeePracticePercentages,
+          modalTimePercentages: employeeTimePercentages
+        });
+      } else if (hasCustomPracticePercentages || hasCustomTimePercentages) {
+        // Use saved custom configuration
         appliedPercentage = calculateEmployeeAppliedPercentage(
           emp, 
           getEmployeeActivities(emp),
@@ -1402,22 +1431,26 @@ export default function RDExpensesTab({
           emp.customTimePercentages
         );
         appliedAmount = emp.wage * (appliedPercentage / 100);
+        console.log(`Employee ${emp.firstName} ${emp.lastName} (saved config):`, {
+          wage: emp.wage,
+          appliedPercentage: appliedPercentage,
+          appliedAmount: appliedAmount,
+          hasCustomConfig: hasCustomPracticePercentages || hasCustomTimePercentages,
+          customPracticePercentages: emp.customPracticePercentages,
+          customTimePercentages: emp.customTimePercentages
+        });
       } else {
         // Use saved values for employees without custom configuration
         appliedPercentage = emp.appliedPercentage;
         appliedAmount = emp.appliedAmount;
+        console.log(`Employee ${emp.firstName} ${emp.lastName} (no custom config):`, {
+          wage: emp.wage,
+          appliedPercentage: appliedPercentage,
+          appliedAmount: appliedAmount
+        });
       }
       
       totalAppliedWages += appliedAmount;
-      
-      console.log(`Employee ${emp.firstName} ${emp.lastName}:`, {
-        wage: emp.wage,
-        appliedPercentage: appliedPercentage,
-        appliedAmount: appliedAmount,
-        hasCustomConfig: hasCustomPracticePercentages || hasCustomTimePercentages,
-        customPracticePercentages: emp.customPracticePercentages,
-        customTimePercentages: emp.customTimePercentages
-      });
     });
 
     // Calculate contractor totals
@@ -1464,10 +1497,18 @@ export default function RDExpensesTab({
       contractorCount: contractors.length,
       supplyCount: supplies.length,
     };
-  }, [employees, contractors, supplies, calculateEmployeeAppliedPercentage, getEmployeeActivities]);
+  }, [employees, contractors, supplies, calculateEmployeeAppliedPercentage, getEmployeeActivities, qraDataMap, selectedEmployeeForConfig, employeePracticePercentages, employeeTimePercentages]);
 
-  // Use real-time year totals instead of static ones
-  const yearTotals = calculateRealTimeYearTotals();
+  // Use real-time year totals that recalculate when employee data changes
+  const yearTotals = useMemo(() => {
+    console.log('=== RECALCULATING YEAR TOTALS (useMemo) ===');
+    console.log('Employees count:', employees.length);
+    console.log('Modal state - practice percentages:', employeePracticePercentages);
+    console.log('Modal state - time percentages:', employeeTimePercentages);
+    const result = calculateRealTimeYearTotals();
+    console.log('YearTotals result:', result);
+    return result;
+  }, [calculateRealTimeYearTotals, employees, contractors, supplies, employeePracticePercentages, employeeTimePercentages]);
 
   if (!isActivitiesApproved) {
     return (
@@ -1586,6 +1627,7 @@ export default function RDExpensesTab({
         supplies={supplies}
         selectedYear={selectedYear}
         federalCredit={federalCredit}
+        yearTotals={yearTotals}
       />
 
       {/* Expense Category Tabs */}

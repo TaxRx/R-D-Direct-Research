@@ -15,6 +15,14 @@ interface ExpenseSummaryProps {
   supplies: any[];
   selectedYear: number;
   federalCredit?: number;
+  yearTotals?: {
+    totalWages: number;
+    totalAppliedWages: number;
+    totalContractorAmounts: number;
+    totalAppliedContractorAmounts: number;
+    totalSupplyValues: number;
+    totalAppliedSupplyAmounts: number;
+  };
 }
 
 export const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({
@@ -22,15 +30,16 @@ export const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({
   contractors,
   supplies,
   selectedYear,
-  federalCredit = 0
+  federalCredit = 0,
+  yearTotals
 }) => {
-  // Calculate totals
-  const totalWages = employees.reduce((sum, emp) => sum + (emp.wage || 0), 0);
-  const totalAppliedWages = employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
-  const totalContractorAmounts = contractors.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
-  const totalAppliedContractorAmounts = contractors.reduce((sum, c) => sum + (c.appliedAmount || 0), 0);
-  const totalSupplyValues = supplies.reduce((sum, s) => sum + (s.totalValue || 0), 0);
-  const totalAppliedSupplyAmounts = supplies.reduce((sum, s) => sum + (s.appliedAmount || 0), 0);
+  // Use yearTotals if provided, otherwise calculate from raw data
+  const totalWages = yearTotals?.totalWages ?? employees.reduce((sum, emp) => sum + (emp.wage || 0), 0);
+  const totalAppliedWages = yearTotals?.totalAppliedWages ?? employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
+  const totalContractorAmounts = yearTotals?.totalContractorAmounts ?? contractors.reduce((sum, c) => sum + (c.totalAmount || 0), 0);
+  const totalAppliedContractorAmounts = yearTotals?.totalAppliedContractorAmounts ?? contractors.reduce((sum, c) => sum + (c.appliedAmount || 0), 0);
+  const totalSupplyValues = yearTotals?.totalSupplyValues ?? supplies.reduce((sum, s) => sum + (s.totalValue || 0), 0);
+  const totalAppliedSupplyAmounts = yearTotals?.totalAppliedSupplyAmounts ?? supplies.reduce((sum, s) => sum + (s.appliedAmount || 0), 0);
 
   const totalExpenses = totalWages + totalContractorAmounts + totalSupplyValues;
   const totalAppliedExpenses = totalAppliedWages + totalAppliedContractorAmounts + totalAppliedSupplyAmounts;
