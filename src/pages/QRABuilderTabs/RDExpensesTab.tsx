@@ -1126,8 +1126,23 @@ export default function RDExpensesTab({
     return contractorActivities;
   };
 
-  const yearTotals = ExpensesService.calculateYearTotals(selectedBusinessId, selectedYear);
-  const availableRoles = ExpensesService.getAvailableRoles(roles); // Now using roles with applied percentages
+  // Add effect to reload business object and QRA data map when Activities tab is approved or changed
+  useEffect(() => {
+    const loadQRADataMap = async () => {
+      if (selectedBusinessId && selectedYear) {
+        try {
+          const data = await QRABuilderService.getAllQRAData(selectedBusinessId, selectedYear);
+          setQraDataMap(data);
+        } catch (error) {
+          console.error('Error loading QRA data map:', error);
+          setQraDataMap({});
+        }
+      }
+    };
+
+    // Reload QRA data map when Activities tab is approved or businesses object changes
+    loadQRADataMap();
+  }, [selectedBusinessId, selectedYear, isActivitiesApproved, businesses]);
 
   const currentYearQREs = useMemo(() => {
     const employeeQREs = employees.reduce((sum, emp) => sum + (emp.appliedAmount || 0), 0);
@@ -1359,23 +1374,100 @@ export default function RDExpensesTab({
     return employeeActivities;
   };
 
-  // Add effect to reload business object and QRA data map when Activities tab is approved or changed
-  useEffect(() => {
-    const loadQRADataMap = async () => {
-      if (selectedBusinessId && selectedYear) {
-        try {
-          const data = await QRABuilderService.getAllQRAData(selectedBusinessId, selectedYear);
-          setQraDataMap(data);
-        } catch (error) {
-          console.error('Error loading QRA data map:', error);
-          setQraDataMap({});
-        }
+  // Calculate year totals in real-time, taking into account current custom percentages
+  const calculateRealTimeYearTotals = useCallback(() => {
+    console.log('=== CALCULATING REAL-TIME YEAR TOTALS ===');
+    
+    let totalAppliedWages = 0;
+    let totalAppliedContractorAmounts = 0;
+    let totalAppliedSupplyAmounts = 0;
+    
+    // Calculate employee totals with real-time applied percentages
+    employees.forEach(emp => {
+      // Check if this employee has custom configuration
+      const hasCustomPracticePercentages = emp.customPracticePercentages && 
+        Object.keys(emp.customPracticePercentages).length > 0;
+      const hasCustomTimePercentages = emp.customTimePercentages && 
+        Object.keys(emp.customTimePercentages).length > 0;
+      
+      let appliedPercentage;
+      let appliedAmount;
+      
+      if (hasCustomPracticePercentages || hasCustomTimePercentages) {
+        // Use real-time calculation with custom percentages
+        appliedPercentage = calculateEmployeeAppliedPercentage(
+          emp, 
+          getEmployeeActivities(emp),
+          emp.customPracticePercentages,
+          emp.customTimePercentages
+        );
+        appliedAmount = emp.wage * (appliedPercentage / 100);
+      } else {
+        // Use saved values for employees without custom configuration
+        appliedPercentage = emp.appliedPercentage;
+        appliedAmount = emp.appliedAmount;
       }
-    };
+      
+      totalAppliedWages += appliedAmount;
+      
+      console.log(`Employee ${emp.firstName} ${emp.lastName}:`, {
+        wage: emp.wage,
+        appliedPercentage: appliedPercentage,
+        appliedAmount: appliedAmount,
+        hasCustomConfig: hasCustomPracticePercentages || hasCustomTimePercentages,
+        customPracticePercentages: emp.customPracticePercentages,
+        customTimePercentages: emp.customTimePercentages
+      });
+    });
 
-    // Reload QRA data map when Activities tab is approved or businesses object changes
-    loadQRADataMap();
-  }, [selectedBusinessId, selectedYear, isActivitiesApproved, businesses]);
+    // Calculate contractor totals
+    contractors.forEach(contractor => {
+      totalAppliedContractorAmounts += contractor.appliedAmount;
+      
+      const contractorName = contractor.contractorType === 'individual' 
+        ? `${contractor.firstName} ${contractor.lastName}` 
+        : contractor.businessName;
+      
+      console.log(`Contractor ${contractorName}:`, {
+        totalAmount: contractor.totalAmount,
+        appliedPercentage: contractor.appliedPercentage,
+        appliedAmount: contractor.appliedAmount
+      });
+    });
+
+    // Calculate supply totals
+    supplies.forEach(supply => {
+      totalAppliedSupplyAmounts += supply.appliedAmount;
+      
+      console.log(`Supply ${supply.title}:`, {
+        totalValue: supply.totalValue,
+        appliedPercentage: supply.appliedPercentage,
+        appliedAmount: supply.appliedAmount
+      });
+    });
+    
+    console.log('Final real-time totals:', {
+      totalAppliedWages,
+      totalAppliedContractorAmounts,
+      totalAppliedSupplyAmounts
+    });
+    
+    return {
+      totalWages: employees.reduce((sum, emp) => sum + emp.wage, 0),
+      totalAppliedWages,
+      totalContractorAmounts: contractors.reduce((sum, contractor) => sum + contractor.totalAmount, 0),
+      totalAppliedContractorAmounts,
+      totalSupplyValues: supplies.reduce((sum, supply) => sum + supply.totalValue, 0),
+      totalAppliedSupplyAmounts,
+      employeeCount: employees.filter(emp => !emp.isBusinessOwner).length,
+      businessOwnerCount: employees.filter(emp => emp.isBusinessOwner).length,
+      contractorCount: contractors.length,
+      supplyCount: supplies.length,
+    };
+  }, [employees, contractors, supplies, calculateEmployeeAppliedPercentage, getEmployeeActivities]);
+
+  // Use real-time year totals instead of static ones
+  const yearTotals = calculateRealTimeYearTotals();
 
   if (!isActivitiesApproved) {
     return (
@@ -1515,7 +1607,7 @@ export default function RDExpensesTab({
             onAddEmployee={handleAddEmployee}
             onKeyPress={handleKeyPress}
             formError={formError}
-            availableRoles={availableRoles}
+            availableRoles={ExpensesService.getAvailableRoles(roles)}
             disabled={isExpensesApproved}
           />
           
