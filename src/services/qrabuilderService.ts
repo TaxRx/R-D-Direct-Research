@@ -131,7 +131,7 @@ export class QRABuilderService {
     try {
       console.log(`[QRABuilderService] Saving QRA data to modal table for activity: ${activityName}`);
       console.log(`[QRABuilderService] Business ID: ${businessId}, Year: ${year}`);
-      console.log(`[QRABuilderService] QRA Data:`, qraData);
+      console.log(`[QRABuilderService] Full QRA Data:`, JSON.stringify(qraData, null, 2));
 
       // Calculate additional fields for the modal table
       const totalSubcomponents = Object.keys(qraData.selectedSubcomponents || {}).length;
@@ -145,14 +145,20 @@ export class QRABuilderService {
       const selectedRoles: string[] = [];
       const stepSummaries: Record<string, any> = {};
 
+      console.log(`[QRABuilderService] Processing ${totalSubcomponents} subcomponents...`);
+
       // Process each subcomponent to build step-level data
-      Object.values(qraData.selectedSubcomponents || {}).forEach((subcomponent: any) => {
+      Object.values(qraData.selectedSubcomponents || {}).forEach((subcomponent: any, index: number) => {
+        console.log(`[QRABuilderService] Processing subcomponent ${index + 1}:`, subcomponent);
+        
         const stepName = subcomponent.step || 'Unknown';
         const timePercent = subcomponent.timePercent || 0;
         const frequencyPercent = subcomponent.frequencyPercent || 0;
         const appliedPercent = subcomponent.appliedPercent || 0;
         const isLocked = subcomponent.isLocked || false;
         const selectedRolesForSub = subcomponent.selectedRoles || [];
+
+        console.log(`[QRABuilderService] Step: ${stepName}, Time: ${timePercent}%, Frequency: ${frequencyPercent}%`);
 
         // Aggregate time percentages for each step
         if (stepTimeMap[stepName]) {
@@ -199,9 +205,9 @@ export class QRABuilderService {
       });
 
       console.log(`[QRABuilderService] Calculated counts - Total: ${totalSubcomponents}, RD: ${rdSubcomponents}, Non-RD: ${nonRdSubcomponents}`);
-      console.log(`[QRABuilderService] Step time map:`, stepTimeMap);
-      console.log(`[QRABuilderService] Step frequencies:`, stepFrequencies);
-      console.log(`[QRABuilderService] Selected roles:`, selectedRoles);
+      console.log(`[QRABuilderService] Final Step Time Map:`, JSON.stringify(stepTimeMap, null, 2));
+      console.log(`[QRABuilderService] Final Step Frequencies:`, JSON.stringify(stepFrequencies, null, 2));
+      console.log(`[QRABuilderService] Final Selected Roles:`, selectedRoles);
 
       // Prepare the data for the modal table
       const modalData = {
@@ -223,7 +229,7 @@ export class QRABuilderService {
         last_updated: new Date().toISOString()
       };
 
-      console.log(`[QRABuilderService] Modal data to upsert:`, modalData);
+      console.log(`[QRABuilderService] Final Modal Data to upsert:`, JSON.stringify(modalData, null, 2));
 
       // Use upsert to handle both insert and update cases
       const { data: upsertResult, error: upsertError } = await supabase
@@ -234,16 +240,24 @@ export class QRABuilderService {
         .select();
 
       if (upsertError) {
-        console.error('Error upserting QRA modal data:', upsertError);
-        console.error('Error details:', upsertError.message, upsertError.details, upsertError.hint);
+        console.error('[QRABuilderService] Error upserting QRA modal data:', upsertError);
+        console.error('[QRABuilderService] Error details:', upsertError.message, upsertError.details, upsertError.hint);
         return false;
       }
 
       console.log(`[QRABuilderService] Upsert result:`, upsertResult);
       console.log(`[QRABuilderService] Successfully saved QRA data to modal table for activity: ${activityName}`);
+      
+      // Verify the saved data
+      if (upsertResult && upsertResult.length > 0) {
+        const savedRecord = upsertResult[0];
+        console.log(`[QRABuilderService] Verification - Saved record step_time_map:`, savedRecord.step_time_map);
+        console.log(`[QRABuilderService] Verification - Saved record step_frequencies:`, savedRecord.step_frequencies);
+      }
+      
       return true;
     } catch (error) {
-      console.error('Error saving QRA data to modal table:', error);
+      console.error('[QRABuilderService] Error saving QRA data to modal table:', error);
       return false;
     }
   }

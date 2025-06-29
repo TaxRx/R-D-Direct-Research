@@ -39,8 +39,8 @@ interface EmployeeConfigureModalProps {
   onPracticePercentageChange: (activityName: string, percentage: number) => void;
   onTimePercentageChange: (activityName: string, subcomponentId: string, percentage: number) => void;
   getEmployeeActivities: (employee: Employee) => any[];
-  calculateActivityAppliedPercentage: (activity: any) => number;
-  calculateEmployeeAppliedPercentage: (employee: Employee, activities: any[]) => number;
+  calculateActivityAppliedPercentage: (activity: any, practicePercentages?: Record<string, number>, timePercentages?: Record<string, Record<string, number>>) => number;
+  calculateEmployeeAppliedPercentage: (employee: Employee, activities: any[], practicePercentages: Record<string, number>, timePercentages: Record<string, Record<string, number>>) => number;
   getQRAData: (activityName: string) => any;
   getActivityColor: (activityName: string, allActivities: any[]) => string;
   hasAnyQRAData: () => Promise<boolean>;
@@ -544,7 +544,9 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
                   // REAL-TIME CALCULATION: Use the actual calculation function to get live updates including time percentages
                   const appliedPercentage = calculateEmployeeAppliedPercentage(
                     employee, 
-                    getEmployeeActivities(employee)
+                    getEmployeeActivities(employee),
+                    employeePracticePercentages,
+                    employeeTimePercentages
                   );
                   
                   return appliedPercentage.toFixed(1);
@@ -581,7 +583,11 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
                     
                     // Calculate individual contributions using the full QRA formula
                     const activityContributions = activities.map(activity => {
-                      const contributedApplied = calculateActivityAppliedPercentage(activity);
+                      const contributedApplied = calculateActivityAppliedPercentage(
+                        activity,
+                        employeePracticePercentages,
+                        employeeTimePercentages
+                      );
                       return { activity, contributedApplied };
                     });
                     
@@ -627,7 +633,11 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
                   
                   // Calculate contributions using the full QRA formula
                   return activities.map((activity, idx) => {
-                    const contributedApplied = calculateActivityAppliedPercentage(activity);
+                    const contributedApplied = calculateActivityAppliedPercentage(
+                      activity,
+                      employeePracticePercentages,
+                      employeeTimePercentages
+                    );
                     
                     if (contributedApplied <= 0) return null;
                     
@@ -672,7 +682,11 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
                         {activity.name}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Applied Percentage: {calculateActivityAppliedPercentage(activity).toFixed(1)}%
+                        Applied Percentage: {calculateActivityAppliedPercentage(
+                          activity,
+                          employeePracticePercentages,
+                          employeeTimePercentages
+                        ).toFixed(1)}%
                       </Typography>
                     </Box>
                     

@@ -508,6 +508,23 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
       stepSummaries
     };
 
+    // Debug logging
+    console.log('[SimpleQRAModal] handleComplete - Data being passed to save:', {
+      activity,
+      currentYear,
+      practicePercent,
+      stepTimeMap,
+      stepFrequencies: stepFreqs,
+      stepTimeLocked,
+      selectedRoles,
+      stepSummaries,
+      totalSubcomponents: Object.keys(selectedSubcomponents).length,
+      rdSubcomponents: Object.values(selectedSubcomponents).filter(c => !c.isNonRD).length,
+      nonRdSubcomponents: Object.values(selectedSubcomponents).filter(c => c.isNonRD).length
+    });
+
+    console.log('[SimpleQRAModal] handleComplete - Full data object:', JSON.stringify(data, null, 2));
+
     onComplete(data);
   };
 

@@ -1174,12 +1174,49 @@ export default function RDExpensesTab({
   const { finalCredit: federalCredit } = useFederalCreditCalculations(creditCalculatorInput);
 
   // Implement QRA calculation functions directly
-  const calculateActivityAppliedPercentage = (activity: any): number => {
+  const calculateActivityAppliedPercentage = (
+    activity: any,
+    practicePercentages?: Record<string, number>,
+    timePercentages?: Record<string, Record<string, number>>
+  ): number => {
     const qraData = getQRADataSync(activity.name);
-    return qraData?.totalAppliedPercent || 0;
+    
+    if (qraData?.selectedSubcomponents) {
+      // Calculate using FULL QRA FORMULA for each subcomponent
+      let activityTotalApplied = 0;
+      
+      Object.entries(qraData.selectedSubcomponents).forEach(([subId, subConfig]) => {
+        if (subConfig && !subConfig.isNonRD) {
+          // Get practice percentage from modal state or fallback to activity data
+          const practicePercent = practicePercentages?.[activity.name] ?? activity.currentPracticePercent ?? 0;
+          
+          // Get time percentage from modal state or fallback to QRA data
+          const timePercent = timePercentages?.[activity.name]?.[subId] ?? subConfig.timePercent ?? 0;
+          
+          // Frequency and Year percentages from QRA data (these don't change in modal)
+          const frequencyPercent = subConfig.frequencyPercent || 0;
+          const yearPercent = subConfig.yearPercent || 0;
+          
+          // Apply the COMPLETE QRA FORMULA: (Practice × Time × Frequency × Year) / 1,000,000
+          const subcomponentApplied = (practicePercent * timePercent * frequencyPercent * yearPercent) / 1000000;
+          
+          activityTotalApplied += subcomponentApplied;
+        }
+      });
+      
+      return activityTotalApplied;
+    } else {
+      // Fallback to the baseline applied percentage
+      return qraData?.totalAppliedPercent || 0;
+    }
   };
 
-  const calculateEmployeeAppliedPercentage = (employee: any, activities: any[]): number => {
+  const calculateEmployeeAppliedPercentage = (
+    employee: any, 
+    activities: any[],
+    practicePercentages?: Record<string, number>,
+    timePercentages?: Record<string, Record<string, number>>
+  ): number => {
     if (!activities || activities.length === 0) {
       return 0;
     }
@@ -1187,7 +1224,7 @@ export default function RDExpensesTab({
     let totalApplied = 0;
     
     activities.forEach(activity => {
-      const contributedApplied = calculateActivityAppliedPercentage(activity);
+      const contributedApplied = calculateActivityAppliedPercentage(activity, practicePercentages, timePercentages);
       totalApplied += contributedApplied;
     });
     
@@ -1249,7 +1286,7 @@ export default function RDExpensesTab({
       return activityTotalApplied;
     } else {
       // Fallback to the baseline applied percentage
-      return activity.appliedPercent || 0;
+      return qraData?.totalAppliedPercent || 0;
     }
   };
 
