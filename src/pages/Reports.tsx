@@ -113,8 +113,8 @@ const Reports: React.FC<ReportsProps> = ({ businesses, selectedBusinessId, selec
     setLoading(true);
     setError(null);
     try {
-      const reportData = getQRAReportData(selectedBusinessId, selectedYear);
-      const statistics = getQRAStatistics(selectedBusinessId, selectedYear);
+      const reportData = await getQRAReportData(selectedBusinessId, selectedYear);
+      const statistics = await getQRAStatistics(selectedBusinessId, selectedYear);
       
       setQraData(reportData);
       setQraStatistics(statistics);
@@ -130,9 +130,9 @@ const Reports: React.FC<ReportsProps> = ({ businesses, selectedBusinessId, selec
     setActiveTab(newValue);
   };
 
-  const handleExportQRA = () => {
+  const handleExportQRA = async () => {
     try {
-      const exportData = exportQRAReportData(selectedBusinessId, selectedYear);
+      const exportData = await exportQRAReportData(selectedBusinessId, selectedYear);
       const blob = new Blob([exportData], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

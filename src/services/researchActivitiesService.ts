@@ -196,7 +196,7 @@ export async function getAllActivities(): Promise<Record<string, any>[]> {
           Phase: row.phase_name,
           phaseId: row.phase_id
         });
-      } else {
+  } else {
         // Just the activity level
         transformedData.push(baseActivity);
       }

@@ -55,12 +55,12 @@ export const useQRACalculations = (
       // Try Supabase first using the new service
       try {
         const supabaseData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
-        
-        if (supabaseData) {
-          // Cache the result
-          setQraDataCache(prev => ({ ...prev, [activityName]: supabaseData }));
-          setLoadingCache(prev => ({ ...prev, [activityName]: false }));
-          return supabaseData;
+      
+      if (supabaseData) {
+        // Cache the result
+        setQraDataCache(prev => ({ ...prev, [activityName]: supabaseData }));
+        setLoadingCache(prev => ({ ...prev, [activityName]: false }));
+        return supabaseData;
         }
       } catch (error) {
         console.warn(`Error loading from Supabase for ${activityName}:`, error);

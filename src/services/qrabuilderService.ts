@@ -29,7 +29,40 @@ export class QRABuilderService {
   ): Promise<boolean> {
     try {
       console.log(`[QRABuilderService] Saving QRA data for activity: ${activityName}`);
+      console.log(`[QRABuilderService] Parameters - Business ID: ${businessId}, Year: ${year}, Activity ID: ${activityId}`);
 
+      // Save to JSONB storage (existing functionality)
+      console.log(`[QRABuilderService] Starting JSONB save...`);
+      const jsonbSuccess = await this.saveQRADataToJSONB(businessId, year, activityId, activityName, qraData);
+      console.log(`[QRABuilderService] JSONB save result: ${jsonbSuccess}`);
+      
+      // Save to qra_modal_data table (new functionality)
+      console.log(`[QRABuilderService] Starting modal table save...`);
+      const modalTableSuccess = await this.saveQRADataToModalTable(businessId, year, activityName, qraData);
+      console.log(`[QRABuilderService] Modal table save result: ${modalTableSuccess}`);
+
+      // Return true if at least one save operation succeeded
+      const success = jsonbSuccess || modalTableSuccess;
+      console.log(`[QRABuilderService] Final save results - JSONB: ${jsonbSuccess}, Modal Table: ${modalTableSuccess}, Overall: ${success}`);
+      
+      return success;
+    } catch (error) {
+      console.error('[QRABuilderService] Error in saveQRAData:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Save QRA data to JSONB storage (existing functionality)
+   */
+  private static async saveQRADataToJSONB(
+    businessId: string,
+    year: number,
+    activityId: string,
+    activityName: string,
+    qraData: SubcomponentSelectionData
+  ): Promise<boolean> {
+    try {
       // Use a simple JSONB storage approach in the businesses table
       const { data: existingBusiness, error: fetchError } = await supabase
         .from('businesses')
@@ -78,10 +111,139 @@ export class QRABuilderService {
         return false;
       }
 
-      console.log(`[QRABuilderService] Successfully saved QRA data for activity: ${activityName}`);
+      console.log(`[QRABuilderService] Successfully saved QRA data to JSONB for activity: ${activityName}`);
       return true;
     } catch (error) {
-      console.error('Error saving QRA data:', error);
+      console.error('Error saving QRA data to JSONB:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Save QRA data to qra_modal_data table (new functionality)
+   */
+  private static async saveQRADataToModalTable(
+    businessId: string,
+    year: number,
+    activityName: string,
+    qraData: SubcomponentSelectionData
+  ): Promise<boolean> {
+    try {
+      console.log(`[QRABuilderService] Saving QRA data to modal table for activity: ${activityName}`);
+      console.log(`[QRABuilderService] Business ID: ${businessId}, Year: ${year}`);
+      console.log(`[QRABuilderService] QRA Data:`, qraData);
+
+      // Calculate additional fields for the modal table
+      const totalSubcomponents = Object.keys(qraData.selectedSubcomponents || {}).length;
+      const rdSubcomponents = Object.values(qraData.selectedSubcomponents || {}).filter((sub: any) => !sub.isNonRD).length;
+      const nonRdSubcomponents = totalSubcomponents - rdSubcomponents;
+
+      // Calculate step_time_map from subcomponents
+      const stepTimeMap: Record<string, number> = {};
+      const stepFrequencies: Record<string, number> = {};
+      const stepTimeLocked: Record<string, boolean> = {};
+      const selectedRoles: string[] = [];
+      const stepSummaries: Record<string, any> = {};
+
+      // Process each subcomponent to build step-level data
+      Object.values(qraData.selectedSubcomponents || {}).forEach((subcomponent: any) => {
+        const stepName = subcomponent.step || 'Unknown';
+        const timePercent = subcomponent.timePercent || 0;
+        const frequencyPercent = subcomponent.frequencyPercent || 0;
+        const appliedPercent = subcomponent.appliedPercent || 0;
+        const isLocked = subcomponent.isLocked || false;
+        const selectedRolesForSub = subcomponent.selectedRoles || [];
+
+        // Aggregate time percentages for each step
+        if (stepTimeMap[stepName]) {
+          stepTimeMap[stepName] += timePercent;
+        } else {
+          stepTimeMap[stepName] = timePercent;
+        }
+
+        // Aggregate frequency percentages for each step
+        if (stepFrequencies[stepName]) {
+          stepFrequencies[stepName] += frequencyPercent;
+        } else {
+          stepFrequencies[stepName] = frequencyPercent;
+        }
+
+        // Track locked status for each step
+        if (!stepTimeLocked.hasOwnProperty(stepName)) {
+          stepTimeLocked[stepName] = isLocked;
+        } else {
+          stepTimeLocked[stepName] = stepTimeLocked[stepName] || isLocked;
+        }
+
+        // Collect unique roles
+        selectedRolesForSub.forEach((role: string) => {
+          if (!selectedRoles.includes(role)) {
+            selectedRoles.push(role);
+          }
+        });
+
+        // Build step summaries
+        if (!stepSummaries[stepName]) {
+          stepSummaries[stepName] = {
+            stepName: stepName,
+            timePercent: 0,
+            subcomponentCount: 0,
+            totalAppliedPercent: 0,
+            isLocked: false
+          };
+        }
+        stepSummaries[stepName].timePercent += timePercent;
+        stepSummaries[stepName].subcomponentCount += 1;
+        stepSummaries[stepName].totalAppliedPercent += appliedPercent;
+        stepSummaries[stepName].isLocked = stepSummaries[stepName].isLocked || isLocked;
+      });
+
+      console.log(`[QRABuilderService] Calculated counts - Total: ${totalSubcomponents}, RD: ${rdSubcomponents}, Non-RD: ${nonRdSubcomponents}`);
+      console.log(`[QRABuilderService] Step time map:`, stepTimeMap);
+      console.log(`[QRABuilderService] Step frequencies:`, stepFrequencies);
+      console.log(`[QRABuilderService] Selected roles:`, selectedRoles);
+
+      // Prepare the data for the modal table
+      const modalData = {
+        business_id: businessId,
+        year: year,
+        activity_name: activityName,
+        practice_percent: qraData.practicePercent || 0,
+        selected_subcomponents: qraData.selectedSubcomponents || {},
+        total_applied_percent: qraData.totalAppliedPercent || 0,
+        step_frequencies: stepFrequencies,
+        step_time_map: stepTimeMap,
+        step_time_locked: stepTimeLocked,
+        selected_roles: selectedRoles,
+        calculation_formula: qraData.calculationFormula || '',
+        total_subcomponents: totalSubcomponents,
+        rd_subcomponents: rdSubcomponents,
+        non_rd_subcomponents: nonRdSubcomponents,
+        step_summaries: stepSummaries,
+        last_updated: new Date().toISOString()
+      };
+
+      console.log(`[QRABuilderService] Modal data to upsert:`, modalData);
+
+      // Use upsert to handle both insert and update cases
+      const { data: upsertResult, error: upsertError } = await supabase
+        .from('qra_modal_data')
+        .upsert(modalData, {
+          onConflict: 'business_id,year,activity_name'
+        })
+        .select();
+
+      if (upsertError) {
+        console.error('Error upserting QRA modal data:', upsertError);
+        console.error('Error details:', upsertError.message, upsertError.details, upsertError.hint);
+        return false;
+      }
+
+      console.log(`[QRABuilderService] Upsert result:`, upsertResult);
+      console.log(`[QRABuilderService] Successfully saved QRA data to modal table for activity: ${activityName}`);
+      return true;
+    } catch (error) {
+      console.error('Error saving QRA data to modal table:', error);
       return false;
     }
   }
@@ -187,6 +349,66 @@ export class QRABuilderService {
       return result;
     } catch (error) {
       console.error('Error loading all QRA data:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Get all QRA data for a business and year from qra_modal_data table
+   * This provides more accurate and real-time data than the JSONB blob
+   */
+  static async getAllQRADataFromModalTable(
+    businessId: string,
+    year: number
+  ): Promise<Record<string, SubcomponentSelectionData>> {
+    try {
+      console.log(`[QRABuilderService] Loading QRA data from modal table for business: ${businessId}, year: ${year}`);
+
+      const { data: modalData, error } = await supabase
+        .from('qra_modal_data')
+        .select('*')
+        .eq('business_id', businessId)
+        .eq('year', year);
+
+      if (error) {
+        console.error('Error loading QRA modal data:', error);
+        return {};
+      }
+
+      if (!modalData || modalData.length === 0) {
+        console.log(`[QRABuilderService] No QRA modal data found for business: ${businessId}, year: ${year}`);
+        return {};
+      }
+
+      const result: Record<string, SubcomponentSelectionData> = {};
+
+      modalData.forEach((row) => {
+        const activityId = row.activity_name; // Use activity_name as the key
+        
+        result[activityId] = {
+          selectedSubcomponents: row.selected_subcomponents || {},
+          practicePercent: row.practice_percent || 0,
+          nonRDTime: 0, // This might need to be calculated from subcomponents
+          totalAppliedPercent: row.total_applied_percent || 0,
+          isLocked: false, // This might need to be determined from step_time_locked
+          lastUpdated: row.last_updated || row.updated_at,
+          // Include step-level data from the modal table
+          stepTimeMap: row.step_time_map || {},
+          stepFrequencies: row.step_frequencies || {},
+          stepTimeLocked: row.step_time_locked || {},
+          selectedRoles: row.selected_roles || [],
+          calculationFormula: row.calculation_formula || '',
+          totalSubcomponents: row.total_subcomponents || 0,
+          rdSubcomponents: row.rd_subcomponents || 0,
+          nonRdSubcomponents: row.non_rd_subcomponents || 0,
+          stepSummaries: row.step_summaries || {}
+        };
+      });
+
+      console.log(`[QRABuilderService] Successfully loaded QRA modal data for ${Object.keys(result).length} activities`);
+      return result;
+    } catch (error) {
+      console.error('Error loading QRA modal data:', error);
       return {};
     }
   }

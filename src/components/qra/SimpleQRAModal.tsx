@@ -95,6 +95,8 @@ interface ActivityData {
   alternativePaths?: string;
   isLimitedAccess?: boolean;
   phase?: string; // Lowercase to match Supabase
+  startYear?: number;
+  frequencyPercent?: number;
 }
 
 const MONTHS = [
@@ -154,7 +156,9 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
           cdtCodes: activity.cdt_codes || [],
           alternativePaths: activity.alternative_paths || '',
           isLimitedAccess: activity.is_limited_access || false,
-          phase: activity.phase || '' // Legacy support
+          phase: activity.phase || '', // Legacy support
+          startYear: activity.start_year || undefined,
+          frequencyPercent: activity.frequency_percent || undefined
         }));
         
         setData(transformedActivities);
@@ -300,53 +304,36 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
 
   // Handle subcomponent selection
   const handleSubcomponentToggle = (step: string, subcomponent: ActivityData) => {
-    const subcomponentName = subcomponent.subcomponent || subcomponent['Subcomponent'] || 'Unknown';
-    const key = `${step}-${subcomponentName}`;
-    const isNonRD = subcomponentName.toLowerCase().includes('non-r&d alternative');
-    
     setSelectedSubcomponents(prev => {
-      const updated = { ...prev };
-      
-      if (isNonRD) {
-        // For Non-R&D Alternative, toggle all other subcomponents
-        const stepSubcomponents = organizedData[step] || [];
-        stepSubcomponents.forEach(sub => {
-          const subKey = `${step}-${sub.subcomponent || sub['Subcomponent'] || 'Unknown'}`;
-          if (subKey !== key) {
-            if (updated[key]) {
-              // Non-R&D is being added, reduce others
-              updated[subKey] = {
-                ...updated[subKey],
-                timePercent: Math.max(0, (updated[subKey]?.timePercent || 0) - 10)
-              };
-            } else {
-              // Non-R&D is being removed, restore others
-              updated[subKey] = {
-                ...updated[subKey],
-                timePercent: Math.min(100, (updated[subKey]?.timePercent || 0) + 10)
-              };
-            }
-          }
-        });
-      }
-      
-      if (updated[key]) {
+      const key = `${step}__${subcomponent.subcomponent}`;
+      const alreadySelected = !!prev[key];
+      let updated = { ...prev };
+      if (alreadySelected) {
         delete updated[key];
       } else {
-        // Add the new subcomponent
+        // Default startYear and frequencyPercent
+        const startYear = subcomponent.startYear || getDefaultStartYear();
         updated[key] = {
-          phase: subcomponent.phase || 'Unknown',
-          step: step,
-          subcomponent: subcomponentName,
-          timePercent: stepTimeMap[step] || 0,
-          frequencyPercent: 0,
-          yearPercent: 100,
-          selectedRoles: [...selectedRoles],
-          appliedPercent: 0,
-          isNonRD: isNonRD
+          phase: subcomponent.phase || 'development',
+          step: subcomponent.step || step,
+          subcomponent: subcomponent.subcomponent || subcomponent['Subcomponent'] || '',
+          timePercent: 0,
+          frequencyPercent: 0, // Will be set below
+          yearPercent: 100, // Default to January (100%) - Start Month = January
+          startYear,
+          selectedRoles: [...selectedRoles], // Preselect all roles from parent activity
+          isNonRD: false
         };
       }
-      
+      // Pro-rata frequencyPercent for all selected subcomponents in this step
+      const stepKeys = Object.keys(updated).filter(k => k.startsWith(`${step}__`));
+      const proRata = stepKeys.length > 0 ? 1 / stepKeys.length : 1;
+      stepKeys.forEach(k => {
+        updated[k] = {
+          ...updated[k],
+          frequencyPercent: Math.round(proRata * 10000) / 100 // 2 decimals
+        };
+      });
       return updated;
     });
   };
@@ -679,6 +666,12 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
   };
 
   const validation = validateQRAConfiguration();
+
+  const getDefaultStartYear = () => {
+    // CY-4 logic: currentYear - 4, or business start year if provided and earlier
+    // For now, use currentYear - 4 as default
+    return currentYear ? currentYear - 4 : new Date().getFullYear() - 4;
+  };
 
   return (
     <Dialog
@@ -1028,13 +1021,13 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                     <Checkbox
                                       checked={isSelected}
-                                      disabled={isActivityLocked}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (!isActivityLocked) {
-                                          handleSubcomponentToggle(step, sub);
-                                        }
-                                      }}
+                                        disabled={isActivityLocked}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!isActivityLocked) {
+                                            handleSubcomponentToggle(step, sub);
+                                          }
+                                        }}
                                     />
                                     <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: isSelected ? 600 : 400 }}>
                                       {sub.subcomponent || sub['Subcomponent'] || 'Unknown'}
@@ -1089,11 +1082,11 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
                                   <Checkbox
                                     checked={isSelected}
-                                    disabled={isActivityLocked}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (!isActivityLocked) {
-                                        handleSubcomponentToggle(step, {
+                                      disabled={isActivityLocked}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!isActivityLocked) {
+                                          handleSubcomponentToggle(step, {
                                           id: 'non-rd-alternative',
                                           category: '',
                                           area: '',
@@ -1104,15 +1097,15 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                                           phase: '',
                                           hint: ''
                                         });
-                                      }
-                                    }}
+                                        }
+                                      }}
                                   />
                                   <Typography variant="subtitle2" sx={{ flex: 1, fontWeight: isSelected ? 600 : 400 }}>
                                     Non-R&D Alternative
                                   </Typography>
                                   <Chip 
                                     label="Non-R&D" 
-                                    size="small" 
+                                      size="small" 
                                     color="warning" 
                                     variant="outlined"
                                     sx={{ ml: 1 }}
@@ -1215,11 +1208,11 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                               {typeof config.subcomponent === 'string' ? config.subcomponent : (config.subcomponent as any)?.title || 'Unknown'}
                             </Typography>
-                            <IconButton
-                              size="small"
+                            <IconButton 
+                              size="small" 
                               color="error"
                               disabled={isActivityLocked}
-                              onClick={() => !isActivityLocked && handleSubcomponentToggle(config.step, {
+                              onClick={() => !isActivityLocked && handleSubcomponentToggle(config.step, { 
                                 id: `selected-${config.step}-${config.subcomponent}`,
                                 category: '',
                                 area: '',
@@ -1296,7 +1289,7 @@ const SimpleQRAModal: React.FC<SimpleQRAModalProps> = ({
                               <TextField
                                 label="Start Year"
                                 type="number"
-                                value={config.startYear}
+                                value={config.startYear !== undefined ? config.startYear : getDefaultStartYear()}
                                 disabled={isActivityLocked}
                                 onChange={(e) => handleMetricChange(key, 'startYear', Number(e.target.value))}
                                 size="small"

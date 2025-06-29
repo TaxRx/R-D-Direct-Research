@@ -1,43 +1,31 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  Box, Card, CardContent, Typography, Chip, IconButton, Fab, Tooltip, LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tabs, Tab, Snackbar, Slide, Divider, AppBar, Toolbar, FormControlLabel, Switch, List, ListItem, ListItemText, Collapse, InputAdornment, CircularProgress, Alert, TextField, Accordion, AccordionSummary, AccordionDetails
+  Box, Card, Typography, Chip, IconButton, Button, Tabs, Tab, AppBar, Toolbar, Switch, Collapse, InputAdornment, TextField, Accordion, AccordionSummary, AccordionDetails, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, Slider, Tooltip
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import InfoIcon from '@mui/icons-material/Info';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import UndoIcon from '@mui/icons-material/Undo';
-import RedoIcon from '@mui/icons-material/Redo';
-import ExpandLess from '@mui/icons-material/ExpandLess';
-import ExpandMore from '@mui/icons-material/ExpandMore';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import CloseIcon from '@mui/icons-material/Close';
-import { green, grey } from '@mui/material/colors';
-import { Business } from '../../types/Business';
-import { normalizeResearchActivityRow } from '../../utils/normalizeResearchActivityRow';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useTheme } from '@mui/material/styles';
-import { UnifiedTemplateManagement } from '../../components/TemplateManagement';
+import { green, grey } from '@mui/material/colors';
+import { Business } from '../../types/Business';
 import { activitiesDataService, ActivitiesTabData } from '../../services/activitiesDataService';
-import { approvalsService, TabApproval, approvalStorageService } from '../../services/approvals';
-import ResearchActivityCard from '../../components/ResearchActivityCard';
 import { Notification } from '../../components/Notification';
-import SimpleQRAModal from '../../components/qra/SimpleQRAModal';
-import QRAExportPanel from '../../components/qra/QRAExportPanel';
-import Slider from '@mui/material/Slider';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { QRABuilderService } from '../../services/qrabuilderService';
 import SettingsIcon from '@mui/icons-material/Settings';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import { saveQRADataToSupabase, loadQRADataFromSupabase } from '../../services/qraDataService';
-import { QRABuilderService } from '../../services/qrabuilderService';
 import { SubcomponentSelectionData } from '../../types/QRABuilderInterfaces';
-import { getAllActivities } from '../../services/researchActivitiesService';
+import { approvalsService, TabApproval } from '../../services/approvals';
+import { UnifiedTemplateManagement } from '../../components/TemplateManagement';
+import AddIcon from '@mui/icons-material/Add';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ResearchActivityCard from '../../components/ResearchActivityCard';
+import { saveQRADataToSupabase } from '../../services/qraDataService';
+import QRAExportPanel from '../../components/qra/QRAExportPanel';
+import SimpleQRAModal from '../../components/qra/SimpleQRAModal';
 
 // Enhanced color palette using bright, vibrant colors for cheerful activities
 const getQRAColor = (index: number): string => {
@@ -204,36 +192,62 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
   // QRA data state to avoid async calls during rendering
   const [qraDataCache, setQraDataCache] = useState<Record<string, SubcomponentSelectionData>>({});
+  
+  // Ref to track which activities have been loaded to prevent duplicate loading
+  const loadedActivitiesRef = useRef<{
+    set: Set<string>;
+    activityNamesString: string;
+  }>({ set: new Set(), activityNamesString: '' });
 
-  // Load QRA data for all activities
-  const loadQRADataForAllActivities = useCallback(async () => {
-    if (activities.length === 0) {
-      console.log('No activities available yet, skipping QRA data load');
-      return;
-    }
+  // Simplified QRA data loading - only load when needed, not on every activity change
+  const loadQRADataForActivity = useCallback(async (activityName: string) => {
+    if (!selectedBusinessId || !selectedYear) return null;
     
-    const newQraDataCache: Record<string, SubcomponentSelectionData> = {};
-    
-    for (const activity of activities) {
-      try {
-        const qraData = await getQRAData(activity.name);
-        if (qraData) {
-          newQraDataCache[activity.name] = qraData;
-        }
-      } catch (error) {
-        console.warn(`Error loading QRA data for ${activity.name}:`, error);
+    try {
+      // Find the activity to get its ID
+      const activity = activities.find(a => a.name === activityName);
+      if (!activity) {
+        console.warn(`Activity not found: ${activityName}`);
+        return null;
       }
+
+      const activityId = activity.id;
+      
+      // Try to load from Supabase
+      const qraData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
+      
+      if (qraData) {
+        // Cache the result
+        setQraDataCache(prev => ({
+          ...prev,
+          [activityName]: qraData
+        }));
+        return qraData;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`Error loading QRA data for ${activityName}:`, error);
+      return null;
     }
-    
-    setQraDataCache(newQraDataCache);
   }, [selectedBusinessId, selectedYear, activities]);
 
-  // Load QRA data when activities change
-  useEffect(() => {
-    if (activities.length > 0) {
-      loadQRADataForAllActivities();
+  // Enhanced getQRAData with better error handling
+  const getQRAData = async (activityName: string): Promise<SubcomponentSelectionData | null> => {
+    try {
+      // First check cache
+      if (qraDataCache[activityName]) {
+        return qraDataCache[activityName];
+      }
+
+      // Load from database if not in cache
+      return await loadQRADataForActivity(activityName);
+    } catch (error) {
+      console.error(`Error loading QRA data for ${activityName}:`, error);
+      return null;
     }
-  }, [selectedBusinessId, selectedYear, activities, loadQRADataForAllActivities]);
+  };
+
 
   // QRA Modal state
   const [qraModalOpen, setQRAModalOpen] = useState(false);
@@ -274,6 +288,74 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       setApprovalData(null);
     }
   }, [selectedYear]);
+
+  // Load QRA data for all activities when component mounts or activities change
+  useEffect(() => {
+    const loadAllQRAData = async () => {
+      if (!selectedBusinessId || !selectedYear || activities.length === 0) return;
+      
+      console.log('[IdentifyActivitiesTab] Loading QRA data for all activities...');
+      
+      // Clear the loaded activities ref for new business/year
+      loadedActivitiesRef.current.set.clear();
+      
+      // Load QRA data for each active activity
+      for (const activity of activities) {
+        if (activity.active) {
+          try {
+            const qraData = await loadQRADataForActivity(activity.name);
+            if (qraData) {
+              // Update the cache with the loaded data
+              setQraDataCache(prev => ({
+                ...prev,
+                [activity.name]: qraData
+              }));
+              // Mark this activity as loaded
+              loadedActivitiesRef.current.set.add(activity.name);
+            }
+          } catch (error) {
+            console.warn(`Failed to load QRA data for activity ${activity.name}:`, error);
+          }
+        }
+      }
+    };
+
+    loadAllQRAData();
+  }, [selectedBusinessId, selectedYear]); // Remove activities and loadQRADataForActivity from dependencies
+
+  // Load QRA data for new activities when activities list changes
+  useEffect(() => {
+    const loadNewActivitiesQRAData = async () => {
+      if (!selectedBusinessId || !selectedYear || activities.length === 0) return;
+      
+      // Only load QRA data for active activities that don't already have cached data
+      for (const activity of activities) {
+        if (activity.active && !loadedActivitiesRef.current.set.has(activity.name)) {
+          try {
+            console.log(`[IdentifyActivitiesTab] Loading QRA data for new activity: ${activity.name}`);
+            const qraData = await loadQRADataForActivity(activity.name);
+            if (qraData) {
+              setQraDataCache(prev => ({
+                ...prev,
+                [activity.name]: qraData
+              }));
+              // Mark this activity as loaded
+              loadedActivitiesRef.current.set.add(activity.name);
+            }
+          } catch (error) {
+            console.warn(`Failed to load QRA data for activity ${activity.name}:`, error);
+          }
+        }
+      }
+    };
+
+    // Use a ref to track if we've already processed the current activities
+    const currentActivityNames = activities.map(a => a.name).join(',');
+    if (currentActivityNames !== loadedActivitiesRef.current.activityNamesString) {
+      loadedActivitiesRef.current.activityNamesString = currentActivityNames;
+      loadNewActivitiesQRAData();
+    }
+  }, [activities.map(a => a.name).join(',')]); // Only depend on the string representation of activity names
 
   // Get or initialize QRA slider state for this business/year
   const getQRASliderState = useCallback((): QRASliderState => {
@@ -355,24 +437,24 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       return;
     }
     
-    const newState = redistributePercentages(activityId, value, 'activity');
-    
-    // Update state and persist
-    setQRASliderState(newState);
-    
+         const newState = redistributePercentages(activityId, value, 'activity');
+     
+     // Update state and persist
+     setQRASliderState(newState);
+     
     // Save to business data immediately
-    setBusinesses(prev => prev.map(business => {
-      if (business.id === selectedBusinessId) {
-        return {
-          ...business,
-          qraSliderByYear: {
-            ...business.qraSliderByYear,
-            [selectedYear]: newState
-          }
-        };
-      }
-      return business;
-    }));
+     setBusinesses(prev => prev.map(business => {
+       if (business.id === selectedBusinessId) {
+         return {
+           ...business,
+           qraSliderByYear: {
+             ...business.qraSliderByYear,
+             [selectedYear]: newState
+           }
+         };
+       }
+       return business;
+     }));
 
     // Also update the activity's practicePercent in the activities array
     setActivities(prev => prev.map(activity => {
@@ -384,7 +466,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       }
       return activity;
     }));
-  };
+   };
 
   // Get active activities (added QRAs)
   const getActiveActivities = () => {
@@ -873,6 +955,27 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
 
   const handlePracticePercentChange = (activityId: string, value: number) => {
     handleQRASliderChange(activityId, value);
+    
+    // Refresh QRA data for this activity when practice percent changes
+    const activity = activities.find(a => a.id === activityId);
+    if (activity) {
+      // Remove from loaded activities so it will be reloaded
+      loadedActivitiesRef.current.set.delete(activity.name);
+      
+      // Reload QRA data for this activity
+      loadQRADataForActivity(activity.name).then(qraData => {
+        if (qraData) {
+          setQraDataCache(prev => ({
+            ...prev,
+            [activity.name]: qraData
+          }));
+          // Mark as loaded again
+          loadedActivitiesRef.current.set.add(activity.name);
+        }
+      }).catch(error => {
+        console.warn(`Failed to reload QRA data for activity ${activity.name}:`, error);
+      });
+    }
   };
 
   // Toggle lock state for QRA slider
@@ -881,13 +984,13 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
     if (!activity) return;
 
     const isCurrentlyLocked = qraSliderState[activityId]?.locked || false;
-    
+
     if (isCurrentlyLocked) {
       // Unlocking - allow proportional adjustment
       const newState = { ...qraSliderState };
       newState[activityId] = {
         value: qraSliderState[activityId]?.value || 0,
-        locked: false
+            locked: false 
       };
       
       // Redistribute percentages among unlocked activities
@@ -912,7 +1015,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       const newState = { ...qraSliderState };
       newState[activityId] = {
         value: qraSliderState[activityId]?.value || 0,
-        locked: true
+          locked: true 
       };
       
       setQRASliderState(newState);
@@ -1205,51 +1308,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
       setQraInitialData(null);
     } finally {
       setLoadingQRAInitialData(false);
-      setQRAModalOpen(true);
-    }
-  };
-
-  // Enhanced getQRAData with better error handling
-  const getQRAData = async (activityName: string): Promise<SubcomponentSelectionData | null> => {
-    try {
-      // First check cache
-      if (qraDataCache[activityName]) {
-        return qraDataCache[activityName];
-      }
-
-      // Ensure activities are loaded
-      if (!activities || activities.length === 0) {
-        console.warn('Activities not loaded yet, cannot lookup QRA data');
-        return null;
-      }
-
-      // Find the activity to get its ID - use normalized comparison
-      const normalizedName = normalizeActivityName(activityName);
-      const activity = activities.find(a => normalizeActivityName(a.name) === normalizedName);
-      
-      if (!activity) {
-        console.warn(`Activity not found: ${activityName} (available: ${activities.map(a => a.name).join(', ')})`);
-        return null;
-      }
-
-      const activityId = activity.id;
-      
-      // Try to load from Supabase
-      const qraData = await QRABuilderService.loadQRAData(selectedBusinessId, selectedYear, activityId);
-      
-      if (qraData) {
-        // Cache the result
-        setQraDataCache(prev => ({
-          ...prev,
-          [activityName]: qraData
-        }));
-        return qraData;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error(`Error loading QRA data for ${activityName}:`, error);
-      return null;
+    setQRAModalOpen(true);
     }
   };
 
@@ -1278,11 +1337,11 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
         [selectedActivityForQRA]: data
       }));
 
-      setNotification({
-        open: true,
+    setNotification({
+      open: true,
         message: `QRA data saved successfully for ${selectedActivityForQRA}`,
-        severity: 'success'
-      });
+      severity: 'success'
+    });
     } catch (error) {
       console.error('Error saving QRA data:', error);
       setNotification({
@@ -1335,13 +1394,7 @@ const IdentifyActivitiesTab: React.FC<IdentifyActivitiesTabProps> = ({
     setIsApproved(false);
   };
 
-  // Load QRA data when activities are set from initial data
-  useEffect(() => {
-    if (activities.length > 0 && selectedBusinessId && selectedYear) {
-      loadQRADataForAllActivities();
-    }
-  }, [activities, selectedBusinessId, selectedYear, loadQRADataForAllActivities]);
-
+  
   // Add loading guard to prevent activity lookup errors
   if (loadingActivities || !masterActivities || masterActivities.length === 0) {
     return (

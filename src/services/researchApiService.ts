@@ -298,7 +298,7 @@ class ResearchApiService {
     if (error) {
       console.error('Error fetching activities:', error);
       throw error;
-    }
+  }
 
     return data || [];
   }
@@ -623,9 +623,9 @@ export const loadResearchApiData = async (): Promise<ResearchApiRow[]> => {
       console.error('Error loading research API data from Supabase:', error);
       return [];
     }
-
+    
     if (!data || data.length === 0) {
-      return [];
+    return [];
     }
 
     // Transform to legacy format

@@ -60,7 +60,7 @@ export const useQRAExport = ({
   useEffect(() => {
     if (autoExport && !exportData) {
       // Auto-generate export when hook is initialized with autoExport enabled
-      generateExport().catch(console.error);
+        generateExport().catch(console.error);
     }
   }, [autoExport, exportData, generateExport]);
 

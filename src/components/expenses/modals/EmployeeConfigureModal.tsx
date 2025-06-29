@@ -43,7 +43,7 @@ interface EmployeeConfigureModalProps {
   calculateEmployeeAppliedPercentage: (employee: Employee, activities: any[]) => number;
   getQRAData: (activityName: string) => any;
   getActivityColor: (activityName: string, allActivities: any[]) => string;
-  hasAnyQRAData: () => boolean;
+  hasAnyQRAData: () => Promise<boolean>;
   selectedBusinessId: string;
   selectedYear: number;
   onEmployeeUpdate?: (updatedEmployee: Employee) => void;
@@ -72,6 +72,7 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Employee>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [hasQraData, setHasQraData] = useState<boolean>(false);
 
   // Initialize edit data when modal opens
   React.useEffect(() => {
@@ -85,8 +86,11 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
         isBusinessOwner: employee.isBusinessOwner
       });
       setValidationErrors({});
+      
+      // Check if QRA data exists
+      hasAnyQRAData().then(setHasQraData).catch(() => setHasQraData(false));
     }
-  }, [open, employee]);
+  }, [open, employee, hasAnyQRAData]);
 
   if (!employee) return null;
 
@@ -798,13 +802,10 @@ export const EmployeeConfigureModal: React.FC<EmployeeConfigureModalProps> = ({
                             No QRA subcomponents found for "{activity.name}"
                           </Typography>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                            {hasAnyQRAData() 
+                            {hasQraData 
                               ? `QRA data exists for this business/year, but not for this specific activity.`
                               : `No QRA data found for ${selectedYear}. Configure subcomponents in the Activities tab first.`
                             }
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Expected localStorage key: qra_{selectedBusinessId}_{selectedYear}_{activity.name}
                           </Typography>
                         </Box>
                       )}

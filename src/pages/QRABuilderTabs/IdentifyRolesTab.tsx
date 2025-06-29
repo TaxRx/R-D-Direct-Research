@@ -343,18 +343,18 @@ const IdentifyRolesTab: React.FC<IdentifyRolesTabProps> = ({
     }
     
     window.saveRolesTimeout = setTimeout(async () => {
-      try {
-        console.log('Saving roles to database:', { businessId: selectedBusinessId, year: selectedYear, rolesCount: newRoles.length });
+    try {
+      console.log('Saving roles to database:', { businessId: selectedBusinessId, year: selectedYear, rolesCount: newRoles.length });
         const roleTrees = convertRoleNodesToRoleTrees(newRoles);
         const success = await RolesService.saveRoles(selectedBusinessId, selectedYear, roleTrees);
-        if (!success) {
-          console.error('Failed to save roles to database');
-        } else {
-          console.log('Successfully saved roles to database');
-        }
-      } catch (error) {
-        console.error('Error saving roles to database:', error);
+      if (!success) {
+        console.error('Failed to save roles to database');
+      } else {
+        console.log('Successfully saved roles to database');
       }
+    } catch (error) {
+      console.error('Error saving roles to database:', error);
+    }
     }, 500); // 500ms debounce
     
     // Also save to localStorage as backup

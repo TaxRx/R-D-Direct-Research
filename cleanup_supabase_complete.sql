@@ -223,3 +223,60 @@ BEGIN
     RAISE NOTICE 'Your database is now completely clean and ready for the new schema.';
     RAISE NOTICE 'Next step: Run complete_supabase_schema.sql to recreate everything.';
 END $$;
+
+-- Complete cleanup script to remove all normalized QRA data
+-- This ensures the app works with JSONB storage only
+
+-- 1. Clear all QRA normalized table data
+DELETE FROM qra_subcomponents;
+DELETE FROM qra_steps;
+DELETE FROM qra_activities;
+
+-- 2. Clear any research activity selections that might be causing conflicts
+UPDATE businesses 
+SET research_activity_selections = NULL 
+WHERE research_activity_selections IS NOT NULL;
+
+-- 3. Ensure businesses table has the required JSONB columns
+-- (These should already exist, but let's make sure)
+
+-- 4. Clear any malformed QRA data in businesses table
+UPDATE businesses 
+SET qra_data = NULL 
+WHERE qra_data = '{}' OR qra_data = 'null' OR qra_data IS NULL;
+
+-- 5. Reset any sequence counters if they exist
+-- (PostgreSQL will handle this automatically, but just in case)
+
+-- 6. Verify cleanup
+SELECT 
+  'qra_activities' as table_name,
+  COUNT(*) as record_count
+FROM qra_activities
+UNION ALL
+SELECT 
+  'qra_steps' as table_name,
+  COUNT(*) as record_count
+FROM qra_steps
+UNION ALL
+SELECT 
+  'qra_subcomponents' as table_name,
+  COUNT(*) as record_count
+FROM qra_subcomponents
+UNION ALL
+SELECT 
+  'businesses with qra_data' as table_name,
+  COUNT(*) as record_count
+FROM businesses 
+WHERE qra_data IS NOT NULL AND qra_data != '{}';
+
+-- 7. Show current state
+SELECT 
+  id,
+  name,
+  CASE 
+    WHEN qra_data IS NULL THEN 'No QRA data'
+    WHEN qra_data = '{}' THEN 'Empty QRA data'
+    ELSE 'Has QRA data'
+  END as qra_data_status
+FROM businesses;

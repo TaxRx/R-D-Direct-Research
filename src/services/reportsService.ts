@@ -1,25 +1,24 @@
 import { QRAActivityData, QRAReportData, QRAStatistics, QRAExportData } from '../types/ReportQRA';
+import { QRABuilderService } from './qrabuilderService';
 
 // QRA Report Data Functions
 
-export function getQRAReportData(businessId: string, year: number): QRAReportData {
+export async function getQRAReportData(businessId: string, year: number): Promise<QRAReportData> {
   try {
     console.log(`🔍 Looking for QRA data for business ${businessId}, year ${year}`);
     
-    // QRA data is stored as individual keys for each activity: qra_${businessId}_${year}_${activityId}
-    // We need to find all keys that match this pattern and aggregate them
+    // Use QRABuilderService to get current QRA data from Supabase
     const activities: QRAActivityData[] = [];
     
-    // Get all localStorage keys
-    const allKeys = Object.keys(localStorage);
-    console.log(`📋 Total localStorage keys: ${allKeys.length}`);
+    // Get business data to access activities
+    const STORAGE_KEY = 'businessInfoData';
+    const savedData = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    const business = savedData.businesses?.find((b: any) => b.id === businessId);
+    const yearData = business?.years?.[year];
+    const businessActivities = yearData?.activities || {};
     
-    const qraKeys = allKeys.filter(key => key.startsWith(`qra_${businessId}_${year}_`));
-    
-    console.log(`🎯 Found ${qraKeys.length} QRA keys for business ${businessId}, year ${year}:`, qraKeys);
-    
-    if (qraKeys.length === 0) {
-      console.log(`❌ No QRA data found for business ${businessId}, year ${year}`);
+    if (!business || !yearData) {
+      console.log(`❌ No business data found for business ${businessId}, year ${year}`);
       return {
         businessId,
         year,
@@ -31,152 +30,101 @@ export function getQRAReportData(businessId: string, year: number): QRAReportDat
       };
     }
 
-    // Process each QRA key to extract activity data
-    qraKeys.forEach((key, index) => {
+    console.log(`📋 Found ${Object.keys(businessActivities).length} activities in business data`);
+
+    // Get all QRA data from Supabase
+    const qraDataMap = await QRABuilderService.getAllQRAData(businessId, year);
+    console.log(`🎯 Found QRA data for ${Object.keys(qraDataMap).length} activities:`, Object.keys(qraDataMap));
+    
+    // Process each activity
+    Object.entries(businessActivities).forEach(([activityId, activityData]: [string, any]) => {
       try {
-        console.log(`📝 Processing QRA key ${index + 1}/${qraKeys.length}: ${key}`);
-        const qraData = localStorage.getItem(key);
+        console.log(`📝 Processing activity: ${activityData.name} (ID: ${activityId})`);
+        
+        // Get QRA data for this activity
+        const qraData = qraDataMap[activityId];
+        
         if (qraData) {
-          const activityData = JSON.parse(qraData);
-          console.log(`✅ Parsed QRA data for key ${key}:`, activityData);
+          console.log(`✅ Found QRA data for activity: ${activityData.name}`);
           
-          // Extract activity ID from the key
-          const activityId = key.replace(`qra_${businessId}_${year}_`, '');
-          console.log(`🆔 Extracted activity ID: ${activityId}`);
+          // Extract QRA data
+          const totalAppliedPercent = qraData.totalAppliedPercent || 0;
+          const practicePercent = qraData.practicePercent || 0;
+          const selectedRoles = qraData.selectedRoles || [];
+          const selectedSubcomponents = qraData.selectedSubcomponents || {};
           
-          // Parse the actual QRA data structure
-          const activityName = activityData.activityName || activityData.name || 'Unnamed Activity';
-          const totalAppliedPercent = activityData.totalAppliedPercent || 0;
-          const practicePercent = activityData.practicePercent || 0;
-          const selectedRoles = activityData.selectedRoles || [];
-          const selectedSubcomponents = activityData.selectedSubcomponents || {};
-          const stepTimeMap = activityData.stepTimeMap || {};
-          const stepFrequencies = activityData.stepFrequencies || {};
-          const stepSummaries = activityData.stepSummaries || {};
-          const stepTimeLocked = activityData.stepTimeLocked || {};
-          
-          console.log(`📊 Activity: ${activityName}, Applied: ${totalAppliedPercent}%, Practice: ${practicePercent}%`);
+          console.log(`📊 Activity: ${activityData.name}, Applied: ${totalAppliedPercent}%, Practice: ${practicePercent}%`);
           console.log(`👥 Selected roles:`, selectedRoles);
           console.log(`🔧 Subcomponents:`, Object.keys(selectedSubcomponents).length);
-          console.log(`⏱️ Steps:`, Object.keys(stepTimeMap));
           
           // Calculate subcomponent count from selectedSubcomponents
           const subcomponentCount = Object.keys(selectedSubcomponents).length;
           
-          // Convert step data to the expected format
-          const steps = Object.keys(stepTimeMap).map((stepName, index) => {
-            // Safely extract description from stepSummaries
-            let description = '';
-            const stepSummary = stepSummaries[stepName];
-            if (typeof stepSummary === 'string') {
-              description = stepSummary;
-            } else if (stepSummary && typeof stepSummary === 'object') {
-              // If it's a StepSummary object, extract relevant information
-              description = stepSummary.description || stepSummary.stepName || stepName;
-            } else {
-              description = stepName;
-            }
-
-            // Get subcomponents for this specific step
-            const stepSubcomponents: any[] = [];
-            Object.entries(selectedSubcomponents).forEach(([key, subData]: [string, any]) => {
-              const [phase, step, subId] = key.split('__');
-              if (step === stepName) {
-                let name = key;
-                let subDescription = '';
-                
-                if (subData?.sub) {
-                  if (typeof subData.sub === 'string') {
-                    name = subData.sub;
-                  } else if (typeof subData.sub === 'object' && subData.sub.title) {
-                    name = subData.sub.title;
-                  }
-                  
-                  if (typeof subData.sub === 'object' && subData.sub.hint) {
-                    subDescription = subData.sub.hint;
-                  }
-                }
-                
-                stepSubcomponents.push({
-                  id: subId || key,
-                  name: name,
-                  description: subDescription,
-                  phase: subData.phase || phase,
-                  step: subData.step || step,
-                  timePercent: subData.timePercent || 0,
-                  frequencyPercent: subData.frequencyPercent || 0
-                });
-              }
-            });
-
-            return {
-              id: `step_${index}`,
-              name: stepName,
-              description: description,
-              order: index,
-              subcomponents: stepSubcomponents, // Now properly populated
-              timePercent: stepTimeMap[stepName] || 0,
-              isLocked: stepTimeLocked[stepName] || false
-            };
-          });
-          
-          // Extract all subcomponents for the activity (for backward compatibility)
-          const subcomponents = Object.entries(selectedSubcomponents).map(([key, subData]: [string, any]) => {
+          // Convert subcomponents to steps format for backward compatibility
+          const steps = Object.entries(selectedSubcomponents).map(([key, subData]: [string, any], index) => {
             const [phase, step, subId] = key.split('__');
             
-            // Safely extract subcomponent name
-            let name = key;
-            if (subData?.sub) {
-              if (typeof subData.sub === 'string') {
-                name = subData.sub;
-              } else if (typeof subData.sub === 'object' && subData.sub.title) {
-                name = subData.sub.title;
-              }
-            }
-            
-            // Safely extract description
-            let description = '';
-            if (subData?.sub) {
-              if (typeof subData.sub === 'object' && subData.sub.hint) {
-                description = subData.sub.hint;
-              }
-            }
-            
             return {
-              id: subId || key,
-              name: name,
-              description: description,
-              phase: subData.phase || phase,
-              step: subData.step || step,
+              id: `step_${index}`,
+              name: step || 'Unknown Step',
+              description: subData?.sub?.hint || '',
+              order: index,
+              subcomponents: [{
+                id: subId || key,
+                name: subData?.sub?.title || key,
+                description: subData?.sub?.hint || '',
+                usageWeight: subData.timePercent || 0
+              }],
               timePercent: subData.timePercent || 0,
-              frequencyPercent: subData.frequencyPercent || 0
+              isLocked: false
             };
           });
 
           const activity: QRAActivityData = {
             id: activityId,
-            name: activityName,
-            category: 'Research & Development',
-            area: 'Clinical Research',
-            focus: 'Innovation',
+            name: activityData.name, // Use the actual activity name from business data
+            category: activityData.category || 'Research & Development',
+            area: activityData.area || 'Clinical Research',
+            focus: activityData.focus || 'Innovation',
             practicePercent: practicePercent,
             appliedPercent: totalAppliedPercent,
-            nonRDTime: 0, // Calculate if needed
+            nonRDTime: qraData.nonRDTime || 0,
             selectedRoles,
             selectedSubcomponents,
             subcomponentCount,
             steps,
-            active: true,
-            lastUpdated: activityData.lastUpdated || new Date().toISOString()
+            active: activityData.active !== false,
+            lastUpdated: qraData.lastUpdated || new Date().toISOString()
           };
           
           activities.push(activity);
-          console.log(`✅ Added activity: ${activityName} (ID: ${activityId})`);
+          console.log(`✅ Added activity: ${activityData.name} (ID: ${activityId})`);
         } else {
-          console.log(`❌ No data found for key: ${key}`);
+          console.log(`⚠️ No QRA data found for activity: ${activityData.name} (ID: ${activityId})`);
+          
+          // Add activity with default values if no QRA data exists
+          const activity: QRAActivityData = {
+            id: activityId,
+            name: activityData.name,
+            category: activityData.category || 'Research & Development',
+            area: activityData.area || 'Clinical Research',
+            focus: activityData.focus || 'Innovation',
+            practicePercent: activityData.practicePercent || 0,
+            appliedPercent: 0,
+            nonRDTime: activityData.nonRDTime || 0,
+            selectedRoles: activityData.selectedRoles || [],
+            selectedSubcomponents: {},
+            subcomponentCount: 0,
+            steps: [],
+            active: activityData.active !== false,
+            lastUpdated: new Date().toISOString()
+          };
+          
+          activities.push(activity);
+          console.log(`✅ Added activity with default values: ${activityData.name} (ID: ${activityId})`);
         }
       } catch (error) {
-        console.error(`❌ Error processing QRA data for key ${key}:`, error);
+        console.error(`❌ Error processing activity ${activityId}:`, error);
       }
     });
 
@@ -213,9 +161,9 @@ export function getQRAReportData(businessId: string, year: number): QRAReportDat
   }
 }
 
-export function getQRAStatistics(businessId: string, year: number): QRAStatistics {
+export async function getQRAStatistics(businessId: string, year: number): Promise<QRAStatistics> {
   try {
-    const reportData = getQRAReportData(businessId, year);
+    const reportData = await getQRAReportData(businessId, year);
     
     const rdActivities = reportData.activities.filter(activity => activity.appliedPercent > 0).length;
     const nonRdActivities = reportData.activities.filter(activity => activity.appliedPercent === 0).length;
@@ -262,10 +210,10 @@ export function getQRAStatistics(businessId: string, year: number): QRAStatistic
   }
 }
 
-export function exportQRAReportData(businessId: string, year: number): string {
+export async function exportQRAReportData(businessId: string, year: number): Promise<string> {
   try {
-    const reportData = getQRAReportData(businessId, year);
-    const statistics = getQRAStatistics(businessId, year);
+    const reportData = await getQRAReportData(businessId, year);
+    const statistics = await getQRAStatistics(businessId, year);
     
     const exportData: QRAExportData = {
       reportData,
@@ -282,9 +230,9 @@ export function exportQRAReportData(businessId: string, year: number): string {
 }
 
 // Helper function to get activity details
-export function getActivityQRADetails(businessId: string, year: number, activityId: string) {
+export async function getActivityQRADetails(businessId: string, year: number, activityId: string) {
   try {
-    const reportData = getQRAReportData(businessId, year);
+    const reportData = await getQRAReportData(businessId, year);
     return reportData.activities.find(activity => activity.id === activityId);
   } catch (error) {
     console.error('Error getting activity QRA details:', error);

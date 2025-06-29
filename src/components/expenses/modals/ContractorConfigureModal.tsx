@@ -35,10 +35,10 @@ interface ContractorConfigureModalProps {
   setContractorPracticePercentages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setContractorTimePercentages: React.Dispatch<React.SetStateAction<Record<string, Record<string, number>>>>;
   getContractorActivities: (contractor: Contractor) => any[];
-  calculateContractorAppliedPercentage: (contractor: Contractor, activities: any[]) => number;
-  calculateContractorActivityAppliedPercentage: (activity: any) => number;
+  calculateContractorAppliedPercentage: (contractor: Contractor, activities: any[], practicePercentages: Record<string, number>, timePercentages: Record<string, Record<string, number>>) => number;
+  calculateContractorActivityAppliedPercentage: (activity: any, practicePercentages?: Record<string, number>, timePercentages?: Record<string, Record<string, number>>) => number;
   getQRAData: (activityName: string) => any;
-  hasAnyQRAData: () => boolean;
+  hasAnyQRAData: () => Promise<boolean>;
   getActivityColor: (activityName: string, allActivities: any[]) => string;
   roles: Role[];
   selectedYear: number;
@@ -69,6 +69,7 @@ export default function ContractorConfigureModal({
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Contractor>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [hasQraData, setHasQraData] = useState<boolean>(false);
 
   // Initialize edit data when modal opens
   React.useEffect(() => {
@@ -83,8 +84,11 @@ export default function ContractorConfigureModal({
         customRoleName: selectedContractor.customRoleName
       });
       setValidationErrors({});
+      
+      // Check if QRA data exists
+      hasAnyQRAData().then(setHasQraData).catch(() => setHasQraData(false));
     }
-  }, [open, selectedContractor]);
+  }, [open, selectedContractor, hasAnyQRAData]);
 
   if (!selectedContractor) return null;
 
@@ -535,7 +539,9 @@ export default function ContractorConfigureModal({
                   // REAL-TIME CALCULATION: Use the actual calculation function to get live updates including time percentages
                   const appliedPercentage = calculateContractorAppliedPercentage(
                     selectedContractor, 
-                    getContractorActivities(selectedContractor)
+                    getContractorActivities(selectedContractor),
+                    contractorPracticePercentages,
+                    contractorTimePercentages
                   );
                   
                   return appliedPercentage.toFixed(1);
@@ -572,7 +578,7 @@ export default function ContractorConfigureModal({
                      
                      // Calculate individual contributions using the full QRA formula
                      const activityContributions = activities.map(activity => {
-                       const contributedApplied = calculateContractorActivityAppliedPercentage(activity);
+                       const contributedApplied = calculateContractorActivityAppliedPercentage(activity, contractorPracticePercentages, contractorTimePercentages);
                        return { activity, contributedApplied };
                      });
                      
@@ -618,7 +624,7 @@ export default function ContractorConfigureModal({
                    
                    // Calculate contributions using the full QRA formula
                    return activities.map((activity, idx) => {
-                     const contributedApplied = calculateContractorActivityAppliedPercentage(activity);
+                     const contributedApplied = calculateContractorActivityAppliedPercentage(activity, contractorPracticePercentages, contractorTimePercentages);
                      
                      if (contributedApplied <= 0) return null;
                      
@@ -729,7 +735,7 @@ export default function ContractorConfigureModal({
                         {activity.name}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Applied Percentage: {calculateContractorActivityAppliedPercentage(activity).toFixed(1)}% (65% rule will be applied)
+                        Applied Percentage: {calculateContractorActivityAppliedPercentage(activity, contractorPracticePercentages, contractorTimePercentages).toFixed(1)}% (65% rule will be applied)
                       </Typography>
                     </Box>
                     
@@ -871,7 +877,7 @@ export default function ContractorConfigureModal({
                             No QRA subcomponents found for "{activity.name}"
                           </Typography>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                            {hasAnyQRAData() 
+                            {hasQraData 
                               ? `QRA data exists for this business/year, but not for this specific activity.`
                               : `No QRA data found for ${selectedYear}. Configure subcomponents in the Activities tab first.`
                             }

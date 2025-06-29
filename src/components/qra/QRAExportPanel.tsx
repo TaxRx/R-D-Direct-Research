@@ -8,6 +8,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DownloadIcon from '@mui/icons-material/Download';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import CodeIcon from '@mui/icons-material/Code';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -42,6 +43,7 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
   const [exporting, setExporting] = useState(false);
   const [exportData, setExportData] = useState<ExportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hasGeneratedData, setHasGeneratedData] = useState(false);
 
   // Generate export data from QRA configurations
   const generateExportData = async () => {
@@ -49,8 +51,8 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
     setError(null);
     
     try {
-      // Get all QRA data from Supabase
-      const qraDataMap = await QRABuilderService.getAllQRAData(businessId, year);
+      // Get all QRA data from qra_modal_data table (more accurate than JSONB)
+      const qraDataMap = await QRABuilderService.getAllQRADataFromModalTable(businessId, year);
       
       // Get all activities from research API
       const { getAllActivities } = await import('../../services/researchActivitiesService');
@@ -73,9 +75,16 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
           activity = activities.find(a => a.title === activityId);
         }
         
+        // If activity is not found, create a fallback activity object
+        // This handles cases where Non-R&D subcomponents or custom activities are saved
         if (!activity) {
-          console.warn(`Activity not found for ID: ${activityId}`);
-          return;
+          console.log(`Activity not found in research API for: ${activityId} - using fallback data`);
+          activity = {
+            id: activityId,
+            name: activityId,
+            title: activityId,
+            steps: []
+          };
         }
 
         const practicePercent = qraData.practicePercent ?? 0;
@@ -114,6 +123,14 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
             subcomponentTitle = subcomponentTitle.title;
           }
 
+          // Handle Non-R&D subcomponents specifically
+          if (sub.isNonRD) {
+            stepName = 'Non-R&D Activities';
+            if (!subcomponentTitle || subcomponentTitle === '') {
+              subcomponentTitle = 'Non-R&D Time';
+            }
+          }
+
           rows.push({
             year,
             researchActivityTitle: activity.name || activity.title || activityId,
@@ -129,6 +146,7 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
       });
       
       setExportData(rows);
+      setHasGeneratedData(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate export data');
     } finally {
@@ -227,21 +245,28 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
         </Typography>
         
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Export your selected QRA activities, steps, and subcomponents with percentages and roles.
-          Only activities you have configured will be included in the export.
+          Export your selected QRA activities, steps, and subcomponents with percentages and roles from the qra_modal_data table.
+          Only activities you have configured will be included in the export. This data is more accurate and up-to-date than the JSONB storage.
         </Typography>
 
         {/* Generate Export Button */}
         <Box sx={{ mb: 3 }}>
-          <Button
-            variant="contained"
-            onClick={generateExportData}
-            disabled={exporting}
-            startIcon={exporting ? <CircularProgress size={16} /> : <FileDownloadIcon />}
-            sx={{ mr: 2 }}
-          >
-            {exporting ? 'Generating Export...' : 'Generate QRA Export Data'}
-          </Button>
+          <Tooltip title={hasGeneratedData ? "Refresh export data with the latest QRA configurations from qra_modal_data table" : "Generate export data from your current QRA configurations in qra_modal_data table"}>
+            <Button
+              variant="contained"
+              onClick={generateExportData}
+              disabled={exporting}
+              startIcon={exporting ? <CircularProgress size={16} /> : hasGeneratedData ? <RefreshIcon /> : <FileDownloadIcon />}
+              sx={{ mr: 2 }}
+            >
+              {exporting 
+                ? 'Generating Export...' 
+                : hasGeneratedData 
+                  ? 'Refresh Export Data' 
+                  : 'Generate QRA Export Data'
+              }
+            </Button>
+          </Tooltip>
         </Box>
 
         {/* Error Display */}
@@ -403,7 +428,7 @@ const QRAExportPanel: React.FC<QRAExportPanelProps> = ({
             <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
               <Typography variant="body2" color="text.secondary">
                 <strong>Export Details:</strong> Business: {businessName} | Year: {year} | 
-                Generated: {new Date().toLocaleString()}
+                Data Source: qra_modal_data table | Generated: {new Date().toLocaleString()}
               </Typography>
             </Box>
           </Box>
